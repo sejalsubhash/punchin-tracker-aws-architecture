@@ -12,7 +12,7 @@ const PORT = process.env.PORT || 5000;
 
 // ─── Middleware ────────────────────────────────────────────────────────────────
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "15mb" }));
 
 // ─── Couchbase Setup ───────────────────────────────────────────────────────────
 const CB_URL        = process.env.COUCHDB_URL;
@@ -372,6 +372,55 @@ app.get("/api/backup/status", (req, res) => {
     s3Bucket:     S3_BUCKET || "not configured",
     schedule:     "Daily at midnight UTC",
   });
+});
+
+// ─── POST /api/upload-photo — proxy to Private EC2 via ALB ───────────────────
+// React calls this HTTPS Render endpoint → Render forwards to HTTP ALB
+// This solves the mixed content (HTTPS→HTTP) browser blocking issue
+app.post("/api/upload-photo", async (req, res) => {
+  const PHOTO_API = process.env.PHOTO_API_URL;
+
+  if (!PHOTO_API) {
+    return res.status(503).json({ error: "PHOTO_API_URL not configured" });
+  }
+
+  try {
+    // Increase limit for base64 image payload
+    const payload = JSON.stringify(req.body);
+
+    const albUrl  = new URL(`${PHOTO_API}/upload-photo`);
+    const options = {
+      hostname: albUrl.hostname,
+      port:     albUrl.port || 80,
+      path:     albUrl.pathname,
+      method:   "POST",
+      headers: {
+        "Content-Type":   "application/json",
+        "Content-Length": Buffer.byteLength(payload),
+      },
+    };
+
+    const protocol = albUrl.protocol === "https:" ? https : http;
+
+    const proxyReq = protocol.request(options, (proxyRes) => {
+      let data = "";
+      proxyRes.on("data", (chunk) => { data += chunk; });
+      proxyRes.on("end", () => {
+        res.status(proxyRes.statusCode).json(JSON.parse(data));
+      });
+    });
+
+    proxyReq.on("error", (err) => {
+      console.error("❌ Proxy error:", err.message);
+      res.status(502).json({ error: "Failed to reach photo API", details: err.message });
+    });
+
+    proxyReq.write(payload);
+    proxyReq.end();
+  } catch (err) {
+    console.error("❌ Upload proxy error:", err.message);
+    res.status(500).json({ error: "Proxy failed", details: err.message });
+  }
 });
 
 // ─── Serve React Build in Production ──────────────────────────────────────────

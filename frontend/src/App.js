@@ -81,9 +81,9 @@ export default function App() {
 
     setPunchLoading(true);
     try {
-      // Punch-in with photo → send to Private EC2 via ALB
-      if (action === 'punch-in' && photo && PHOTO_API_URL) {
-        const response = await fetch(`${PHOTO_API_URL}/upload-photo`, {
+      // Punch-in with photo → send to Render backend proxy (avoids HTTPS→HTTP mixed content)
+      if (action === 'punch-in' && photo) {
+        const response = await fetch(`/api/upload-photo`, {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
