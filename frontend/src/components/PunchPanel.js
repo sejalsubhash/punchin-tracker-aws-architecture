@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import './PunchPanel.css';
 
 const ACTIONS = [
@@ -61,65 +61,117 @@ export default function PunchPanel({
   loading,
   lastAction,
 }) {
-  // ── Webcam state ────────────────────────────────────────────────────────────
-  const [showCamera, setShowCamera]     = useState(false);
+  const [showCamera, setShowCamera]       = useState(false);
   const [capturedPhoto, setCapturedPhoto] = useState(null);
-  const [cameraError, setCameraError]   = useState(null);
-  const [capturing, setCapturing]       = useState(false);
+  const [cameraError, setCameraError]     = useState(null);
+  const [capturing, setCapturing]         = useState(false);
   const [pendingAction, setPendingAction] = useState(null);
+  const [cameraReady, setCameraReady]     = useState(false);
 
-  const videoRef    = useRef(null);
-  const canvasRef   = useRef(null);
-  const streamRef   = useRef(null);
+  const videoRef  = useRef(null);
+  const canvasRef = useRef(null);
+  const streamRef = useRef(null);
 
   const disabled = !selectedMember || loading;
 
-  // ── Start webcam ────────────────────────────────────────────────────────────
+  // ── Fix black screen: wait for video metadata to load ──────────────────────
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const handleCanPlay = () => {
+      setCameraReady(true);
+      video.play().catch((e) => console.error('Video play error:', e));
+    };
+
+    video.addEventListener('canplay', handleCanPlay);
+    return () => video.removeEventListener('canplay', handleCanPlay);
+  }, [showCamera]);
+
+  // ── Start camera ───────────────────────────────────────────────────────────
   const startCamera = useCallback(async () => {
     setCameraError(null);
     setCapturedPhoto(null);
+    setCameraReady(false);
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 320, height: 240, facingMode: 'user' },
-        audio: false,
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
+      // Stop any existing stream first
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
       }
+
+      const constraints = {
+        video: {
+          width:       { ideal: 640 },
+          height:      { ideal: 480 },
+          facingMode:  'user',
+        },
+        audio: false,
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      streamRef.current = stream;
+
+      // Small delay to ensure video element is rendered
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+      }, 100);
+
       setShowCamera(true);
     } catch (err) {
-      setCameraError('Camera access denied. Please allow camera permission and try again.');
       console.error('Camera error:', err);
+      if (err.name === 'NotAllowedError') {
+        setCameraError('Camera permission denied. Please allow camera access in your browser settings.');
+      } else if (err.name === 'NotFoundError') {
+        setCameraError('No camera found on this device.');
+      } else {
+        setCameraError(`Camera error: ${err.message}`);
+      }
     }
   }, []);
 
-  // ── Stop webcam ─────────────────────────────────────────────────────────────
+  // ── Stop camera ────────────────────────────────────────────────────────────
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
     setShowCamera(false);
     setCapturedPhoto(null);
     setPendingAction(null);
     setCameraError(null);
+    setCameraReady(false);
   }, []);
 
-  // ── Capture photo from video ────────────────────────────────────────────────
+  // ── Capture photo ──────────────────────────────────────────────────────────
   const capturePhoto = useCallback(() => {
-    if (!videoRef.current || !canvasRef.current) return;
+    const video  = videoRef.current;
     const canvas = canvasRef.current;
-    canvas.width  = 320;
-    canvas.height = 240;
+    if (!video || !canvas) return;
+
+    const w = video.videoWidth  || 640;
+    const h = video.videoHeight || 480;
+
+    canvas.width  = w;
+    canvas.height = h;
+
     const ctx = canvas.getContext('2d');
-    ctx.drawImage(videoRef.current, 0, 0, 320, 240);
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+    // Mirror the image (selfie style)
+    ctx.translate(w, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, 0, 0, w, h);
+
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
     setCapturedPhoto(dataUrl);
   }, []);
 
-  // ── Confirm and submit punch with photo ─────────────────────────────────────
+  // ── Confirm punch with photo ───────────────────────────────────────────────
   const confirmPunchWithPhoto = useCallback(async () => {
     if (!capturedPhoto || !pendingAction) return;
     setCapturing(true);
@@ -128,7 +180,7 @@ export default function PunchPanel({
     stopCamera();
   }, [capturedPhoto, pendingAction, onPunch, stopCamera]);
 
-  // ── Handle action button click ──────────────────────────────────────────────
+  // ── Handle action button click ─────────────────────────────────────────────
   const handleActionClick = useCallback(async (actionId, requiresPhoto) => {
     if (!selectedMember) return;
     if (requiresPhoto) {
@@ -142,67 +194,82 @@ export default function PunchPanel({
   return (
     <div className="punch-panel">
 
-      {/* Entry Mode Toggle */}
-      <div className="entry-toggle-wrap">
-        <span className="toggle-label">Entry Mode</span>
-        <div className="entry-toggle">
-          <button
-            className={`toggle-btn ${entryType === 'auto' ? 'active' : ''}`}
-            onClick={() => setEntryType('auto')}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
-            </svg>
-            Auto
-          </button>
-          <button
-            className={`toggle-btn ${entryType === 'manual' ? 'active' : ''}`}
-            onClick={() => setEntryType('manual')}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <line x1="17" y1="3" x2="7" y2="13" /><rect x="1" y="13" width="6" height="6" rx="1" /><path d="M14 3l7 7" />
-            </svg>
-            Manual
-          </button>
+      {/* ── Top row: Entry Mode + Time display side by side ── */}
+      <div className="punch-top-row">
+
+        {/* Left: Entry Mode Toggle */}
+        <div className="entry-section">
+          <span className="toggle-label">Entry Mode</span>
+          <div className="entry-toggle">
+            <button
+              className={`toggle-btn ${entryType === 'auto' ? 'active' : ''}`}
+              onClick={() => setEntryType('auto')}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+              </svg>
+              Auto
+            </button>
+            <button
+              className={`toggle-btn ${entryType === 'manual' ? 'active' : ''}`}
+              onClick={() => setEntryType('manual')}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <line x1="17" y1="3" x2="7" y2="13" />
+                <rect x="1" y="13" width="6" height="6" rx="1" />
+                <path d="M14 3l7 7" />
+              </svg>
+              Manual
+            </button>
+          </div>
+        </div>
+
+        {/* Right: Time display or manual inputs */}
+        <div className="time-section">
+          {entryType === 'auto' ? (
+            <div className="auto-time-display">
+              <div className="auto-time-icon">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+                </svg>
+              </div>
+              <div>
+                <div className="auto-time-value">{liveTime.time}</div>
+                <div className="auto-time-date">{liveTime.date}</div>
+              </div>
+              <div className="auto-badge">LIVE</div>
+            </div>
+          ) : (
+            <div className="manual-inputs">
+              <div className="input-group">
+                <label className="input-label">Time</label>
+                <input
+                  type="time"
+                  className="time-input"
+                  value={manualTime}
+                  onChange={(e) => setManualTime(e.target.value)}
+                />
+              </div>
+              <div className="input-group">
+                <label className="input-label">Date</label>
+                <input
+                  type="date"
+                  className="time-input"
+                  value={manualDate}
+                  onChange={(e) => setManualDate(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Auto time display */}
-      {entryType === 'auto' && (
-        <div className="auto-time-display animate-fade">
-          <div className="auto-time-icon">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
-            </svg>
-          </div>
-          <div>
-            <div className="auto-time-value">{liveTime.time}</div>
-            <div className="auto-time-date">{liveTime.date}</div>
-          </div>
-          <div className="auto-badge">LIVE</div>
-        </div>
-      )}
-
-      {/* Manual inputs */}
-      {entryType === 'manual' && (
-        <div className="manual-inputs animate-in">
-          <div className="input-group">
-            <label className="input-label">Time</label>
-            <input type="time" className="time-input" value={manualTime} onChange={(e) => setManualTime(e.target.value)} />
-          </div>
-          <div className="input-group">
-            <label className="input-label">Date</label>
-            <input type="date" className="time-input" value={manualDate} onChange={(e) => setManualDate(e.target.value)} />
-          </div>
-        </div>
-      )}
-
-      {/* No member prompt */}
+      {/* ── No member prompt ── */}
       {!selectedMember && (
         <div className="select-prompt">Please select a team member first</div>
       )}
 
-      {/* Action buttons */}
+      {/* ── Action buttons ── */}
       <div className="action-buttons">
         {ACTIONS.map((action) => (
           <button
@@ -226,14 +293,12 @@ export default function PunchPanel({
         ))}
       </div>
 
-      {/* Camera error */}
+      {/* ── Camera error ── */}
       {cameraError && (
-        <div className="camera-error animate-fade">
-          ⚠️ {cameraError}
-        </div>
+        <div className="camera-error animate-fade">⚠️ {cameraError}</div>
       )}
 
-      {/* ── Webcam modal ──────────────────────────────────────────────────── */}
+      {/* ── Camera modal: horizontal layout ── */}
       {showCamera && (
         <div className="camera-modal animate-in">
           <div className="camera-header">
@@ -241,42 +306,94 @@ export default function PunchPanel({
             <button className="camera-close" onClick={stopCamera}>✕</button>
           </div>
 
-          {/* Video preview */}
-          {!capturedPhoto && (
-            <div className="camera-preview">
-              <video ref={videoRef} autoPlay playsInline muted className="camera-video" />
-              <button className="capture-btn" onClick={capturePhoto}>
-                <span className="capture-btn-inner" />
-              </button>
-              <p className="camera-hint">Click the button to capture your photo</p>
+          <div className="camera-horizontal">
+            {/* Left: video or captured photo */}
+            <div className="camera-left">
+              {!capturedPhoto ? (
+                <>
+                  <div className="video-wrap">
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className={`camera-video ${cameraReady ? 'ready' : 'loading'}`}
+                      style={{ transform: 'scaleX(-1)' }}
+                    />
+                    {!cameraReady && (
+                      <div className="camera-loading-overlay">
+                        <div className="camera-spinner" />
+                        <span>Starting camera...</span>
+                      </div>
+                    )}
+                  </div>
+                  <p className="camera-hint">Position your face in the frame</p>
+                </>
+              ) : (
+                <>
+                  <img
+                    src={capturedPhoto}
+                    alt="Captured"
+                    className="captured-img"
+                  />
+                  <p className="camera-hint">Photo captured successfully</p>
+                </>
+              )}
             </div>
-          )}
 
-          {/* Captured photo preview */}
-          {capturedPhoto && (
-            <div className="camera-preview">
-              <img src={capturedPhoto} alt="Captured" className="captured-img" />
-              <div className="camera-actions">
-                <button className="cam-btn cam-btn--retake" onClick={() => setCapturedPhoto(null)}>
-                  Retake
-                </button>
-                <button
-                  className="cam-btn cam-btn--confirm"
-                  onClick={confirmPunchWithPhoto}
-                  disabled={capturing}
-                >
-                  {capturing ? 'Saving...' : 'Confirm Punch In'}
-                </button>
-              </div>
+            {/* Right: controls */}
+            <div className="camera-right">
+              {!capturedPhoto ? (
+                <>
+                  <div className="camera-instruction">
+                    <div className="instruction-icon">👤</div>
+                    <p>Make sure your face is clearly visible</p>
+                    <p>Good lighting helps!</p>
+                  </div>
+                  <button
+                    className="capture-btn"
+                    onClick={capturePhoto}
+                    disabled={!cameraReady}
+                  >
+                    <span className="capture-btn-inner" />
+                  </button>
+                  <span className="capture-label">Click to capture</span>
+                  <button className="cam-btn cam-btn--cancel" onClick={stopCamera}>
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div className="camera-instruction">
+                    <div className="instruction-icon">✅</div>
+                    <p>Looking good!</p>
+                    <p>Confirm to punch in</p>
+                  </div>
+                  <button
+                    className="cam-btn cam-btn--confirm"
+                    onClick={confirmPunchWithPhoto}
+                    disabled={capturing}
+                  >
+                    {capturing ? 'Saving...' : 'Confirm Punch In'}
+                  </button>
+                  <button
+                    className="cam-btn cam-btn--retake"
+                    onClick={() => setCapturedPhoto(null)}
+                    disabled={capturing}
+                  >
+                    Retake Photo
+                  </button>
+                </>
+              )}
             </div>
-          )}
+          </div>
         </div>
       )}
 
-      {/* Hidden canvas for capture */}
+      {/* Hidden canvas */}
       <canvas ref={canvasRef} style={{ display: 'none' }} />
 
-      {/* Last action feedback */}
+      {/* ── Last action feedback ── */}
       {lastAction && (
         <div className={`last-action-badge animate-fade last-action--${lastAction.color}`}>
           <span>✓</span>

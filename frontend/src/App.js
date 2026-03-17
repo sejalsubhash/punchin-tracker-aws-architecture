@@ -8,10 +8,9 @@ import RecordsTable   from './components/RecordsTable';
 import StatsBar       from './components/StatsBar';
 import Toast          from './components/Toast';
 
-import { useTime }                                        from './hooks/useTime';
-import { fetchMembers, fetchAllRecords, createPunchRecord } from './utils/api';
+import { useTime }                                              from './hooks/useTime';
+import { fetchMembers, fetchAllRecords, createPunchRecord }    from './utils/api';
 
-// ── ALB endpoint for photo upload (Private EC2 via ALB) ──────────────────────
 const PHOTO_API_URL = process.env.REACT_APP_PHOTO_API_URL || '';
 
 let toastCounter = 0;
@@ -26,10 +25,8 @@ export default function App() {
   const [members, setMembers]               = useState([]);
   const [membersLoading, setMembersLoading] = useState(true);
   const [selectedMember, setSelectedMember] = useState(null);
-
   const [records, setRecords]               = useState([]);
   const [recordsLoading, setRecordsLoading] = useState(true);
-
   const [punchLoading, setPunchLoading]     = useState(false);
   const [lastAction, setLastAction]         = useState(null);
   const [toasts, setToasts]                 = useState([]);
@@ -42,7 +39,6 @@ export default function App() {
     getSubmitTime,
   } = useTime();
 
-  // ── Toast helpers ──────────────────────────────────────────────────────────
   const addToast = useCallback((type, title, message, duration = 4000) => {
     const id = ++toastCounter;
     setToasts((prev) => [...prev, { id, type, title, message, duration }]);
@@ -52,7 +48,6 @@ export default function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  // ── Load members ───────────────────────────────────────────────────────────
   useEffect(() => {
     fetchMembers()
       .then(setMembers)
@@ -60,7 +55,6 @@ export default function App() {
       .finally(() => setMembersLoading(false));
   }, [addToast]);
 
-  // ── Load records ───────────────────────────────────────────────────────────
   const loadRecords = useCallback(() => {
     setRecordsLoading(true);
     fetchAllRecords()
@@ -71,14 +65,11 @@ export default function App() {
 
   useEffect(() => { loadRecords(); }, [loadRecords]);
 
-  // ── Auto-refresh every 30s ─────────────────────────────────────────────────
   useEffect(() => {
     pollingRef.current = setInterval(loadRecords, 30000);
     return () => clearInterval(pollingRef.current);
   }, [loadRecords]);
 
-  // ── Punch action ───────────────────────────────────────────────────────────
-  // photo is base64 string or null (for break / punch-out)
   const handlePunch = useCallback(async (action, photo = null) => {
     if (!selectedMember || punchLoading) return;
 
@@ -90,9 +81,7 @@ export default function App() {
 
     setPunchLoading(true);
     try {
-      let photoUrl = null;
-
-      // ── If punch-in with photo → send to Private EC2 via ALB ──────────────
+      // Punch-in with photo → send to Private EC2 via ALB
       if (action === 'punch-in' && photo && PHOTO_API_URL) {
         const response = await fetch(`${PHOTO_API_URL}/upload-photo`, {
           method:  'POST',
@@ -108,15 +97,20 @@ export default function App() {
 
         if (!response.ok) throw new Error('Photo upload failed');
         const data = await response.json();
-        photoUrl = data.photoUrl;
 
-        addToast('success', 'Punched In!', `${selectedMember} punched in at ${timeData.time} · photo saved to S3`);
-        setLastAction({ action, name: selectedMember, time: timeData.time, photoUrl, ...ACTION_META[action] });
+        setLastAction({
+          action,
+          name:     selectedMember,
+          time:     timeData.time,
+          photoUrl: data.photoUrl,
+          ...ACTION_META[action],
+        });
+        addToast('success', 'Punched In!', `${selectedMember} punched in · photo saved to S3`);
         loadRecords();
         return;
       }
 
-      // ── For break / punch-out → use existing Render backend ───────────────
+      // Break / punch-out → use Render backend
       await createPunchRecord({
         name:      selectedMember,
         action,
@@ -138,7 +132,6 @@ export default function App() {
     }
   }, [selectedMember, punchLoading, getSubmitTime, addToast, loadRecords]);
 
-  // ── Clear last action after 8s ─────────────────────────────────────────────
   useEffect(() => {
     if (lastAction) {
       const timer = setTimeout(() => setLastAction(null), 8000);
@@ -149,42 +142,49 @@ export default function App() {
   return (
     <div className="app">
       <Header selectedMember={selectedMember} liveTime={liveTime} />
+
       <main className="app-main">
         <div className="content-wrap">
+
+          {/* Stats bar */}
           <StatsBar records={records} />
-          <div className="main-grid">
-            <div className="left-col">
-              <MemberSelector
-                members={members}
-                selected={selectedMember}
-                onSelect={setSelectedMember}
-                loading={membersLoading}
-              />
-              <PunchPanel
-                selectedMember={selectedMember}
-                entryType={entryType}
-                setEntryType={setEntryType}
-                manualTime={manualTime}
-                setManualTime={setManualTime}
-                manualDate={manualDate}
-                setManualDate={setManualDate}
-                liveTime={liveTime}
-                onPunch={handlePunch}
-                loading={punchLoading}
-                lastAction={lastAction}
-              />
-            </div>
-            <div className="right-col">
-              <RecordsTable
-                records={records}
-                loading={recordsLoading}
-                onRefresh={loadRecords}
-                filterMember={null}
-              />
-            </div>
+
+          {/* Top: member selector + punch panel side by side */}
+          <div className="top-section">
+            <MemberSelector
+              members={members}
+              selected={selectedMember}
+              onSelect={setSelectedMember}
+              loading={membersLoading}
+            />
+            <PunchPanel
+              selectedMember={selectedMember}
+              entryType={entryType}
+              setEntryType={setEntryType}
+              manualTime={manualTime}
+              setManualTime={setManualTime}
+              manualDate={manualDate}
+              setManualDate={setManualDate}
+              liveTime={liveTime}
+              onPunch={handlePunch}
+              loading={punchLoading}
+              lastAction={lastAction}
+            />
           </div>
+
+          {/* Bottom: records table full width */}
+          <div className="bottom-section">
+            <RecordsTable
+              records={records}
+              loading={recordsLoading}
+              onRefresh={loadRecords}
+              filterMember={null}
+            />
+          </div>
+
         </div>
       </main>
+
       <Toast toasts={toasts} removeToast={removeToast} />
     </div>
   );
