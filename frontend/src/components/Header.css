@@ -1,0 +1,133 @@
+.app-header {
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  padding: 0 2rem;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  backdrop-filter: blur(10px);
+}
+
+.header-inner {
+  max-width: 1400px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 72px;
+  gap: 1rem;
+}
+
+/* Brand */
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.brand-icon {
+  width: 42px;
+  height: 42px;
+  background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  box-shadow: var(--shadow-glow-blue);
+}
+
+.brand-name {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  letter-spacing: 0.1em;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.brand-name span {
+  color: var(--accent-blue);
+}
+
+.brand-sub {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* Center welcome */
+.header-center {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+}
+
+.welcome-badge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--accent-green);
+  border-radius: 100px;
+  padding: 8px 20px;
+  box-shadow: var(--shadow-glow-green);
+}
+
+.welcome-dot {
+  width: 8px;
+  height: 8px;
+  background: var(--accent-green);
+  border-radius: 50%;
+  animation: pulse-glow 2s infinite;
+  flex-shrink: 0;
+}
+
+.welcome-text {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.welcome-text strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.no-selection-hint {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* Clock */
+.header-clock {
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.clock-time {
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  color: var(--accent-blue);
+  letter-spacing: 0.05em;
+  line-height: 1;
+}
+
+.clock-date {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+@media (max-width: 768px) {
+  .header-inner {
+    flex-wrap: wrap;
+    height: auto;
+    padding: 12px 0;
+    gap: 8px;
+  }
+  .header-center { order: 3; width: 100%; }
+  .header-clock { display: none; }
+  .brand-sub { display: none; }
+}

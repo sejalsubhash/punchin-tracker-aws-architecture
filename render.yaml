@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: punch-tracker
+    env: node
+    region: oregon
+    plan: free
+    buildCommand: npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      # ── Set these in Render Dashboard → Environment ──────────────────────────
+      # - key: COUCHDB_URL
+      #   value: http://admin:yourpassword@your-couchdb-host:5984
+      # - key: COUCHDB_DB
+      #   value: punch_tracker
+      # - key: AWS_REGION
+      #   value: us-east-2
+      # - key: AWS_ACCESS_KEY_ID
+      #   sync: false
+      # - key: AWS_SECRET_ACCESS_KEY
+      #   sync: false
+      # - key: SNS_TOPIC_ARN
+      #   value: arn:aws:sns:us-east-1:XXXXXXXXXXXX:TeamAttendanceAlerts
+      # - key: TEAM_MEMBERS
+      #   value: "Alice Smith,Bob Jones,Carol White"
+      # - key: REACT_APP_API_URL
+      #   value: ""   # leave empty — frontend calls relative /api/* paths in prod
