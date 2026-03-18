@@ -275,3 +275,102 @@
   color: var(--text-muted);
   font-size: 0.85rem;
 }
+
+/* ── Delete button ───────────────────────────────────────────────────────── */
+.col-delete { width: 50px; text-align: center; }
+
+.delete-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: 1.5px solid rgba(239,68,68,0.3);
+  background: rgba(239,68,68,0.08);
+  color: var(--accent-red);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition);
+  margin: 0 auto;
+}
+
+.delete-btn:hover:not(:disabled) {
+  background: rgba(239,68,68,0.2);
+  border-color: var(--accent-red);
+  transform: scale(1.1);
+}
+
+.delete-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.no-delete {
+  font-size: 0.85rem;
+  display: flex;
+  justify-content: center;
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Photo thumbnail ─────────────────────────────────────────────────────── */
+.col-photo { width: 60px; text-align: center; }
+
+.punch-photo-thumb {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1.5px solid var(--border-color);
+  cursor: pointer;
+  transition: var(--transition);
+  display: block;
+  margin: 0 auto;
+}
+
+.punch-photo-thumb:hover {
+  border-color: var(--accent-blue);
+  transform: scale(1.15);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+
+.no-photo { color: var(--text-muted); font-size: 0.85rem; }
+
+/* ── Photo lightbox ──────────────────────────────────────────────────────── */
+.photo-lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.85);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: fadeIn 0.2s ease;
+}
+
+.lightbox-inner {
+  position: relative;
+  max-width: 500px;
+  width: 100%;
+}
+
+.lightbox-close {
+  position: absolute;
+  top: -40px;
+  right: 0;
+  background: none;
+  border: none;
+  color: white;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 6px;
+  transition: var(--transition);
+}
+
+.lightbox-close:hover { background: rgba(255,255,255,0.1); }
+
+.lightbox-img {
+  width: 100%;
+  border-radius: var(--radius-lg);
+  border: 2px solid var(--border-light);
+  display: block;
+}

@@ -6,8 +6,6 @@ const { SNSClient, PublishCommand } = require("@aws-sdk/client-sns");
 const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
 const { v4: uuidv4 } = require("uuid");
 const path = require("path");
-const http  = require("http");
-const https = require("https");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -216,6 +214,35 @@ function scheduleDailyBackup() {
   }, msUntilMidnight);
 }
 
+// ─── Save individual record to S3 as JSON ─────────────────────────────────────
+async function saveRecordToS3(record) {
+  if (!S3_BUCKET) {
+    console.warn("⚠️  S3_BUCKET_NAME not set. Skipping record backup.");
+    return;
+  }
+  try {
+    const safeName  = (record.name || "unknown").replace(/\s+/g, "-").toLowerCase();
+    const s3Key     = `records/${record.date}/${record.action}/${safeName}-${record.createdAt}.json`;
+    const command   = new PutObjectCommand({
+      Bucket:      S3_BUCKET,
+      Key:         s3Key,
+      Body:        JSON.stringify(record, null, 2),
+      ContentType: "application/json",
+      Metadata: {
+        "member-name": record.name || "",
+        "action":      record.action || "",
+        "punch-date":  record.date || "",
+        "punch-time":  record.time || "",
+      },
+    });
+    await s3Client.send(command);
+    console.log(`✅ S3 record saved: ${s3Key}`);
+  } catch (err) {
+    console.error("❌ S3 record save error:", err.message);
+    // Non-fatal — don't throw, just log
+  }
+}
+
 // ─── Team Members ──────────────────────────────────────────────────────────────
 const TEAM_MEMBERS = (process.env.TEAM_MEMBERS || "")
   .split(",")
@@ -274,6 +301,9 @@ app.post("/api/punch", async (req, res) => {
   try {
     await collection.insert(docId, record);
     record.id = docId;
+
+    // ── Save record instantly to S3 as JSON ──────────────────────────────
+    await saveRecordToS3(record);
 
     const actionLabels = {
       "punch-in":  "Punched In",

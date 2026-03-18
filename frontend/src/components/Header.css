@@ -84,6 +84,16 @@
   flex-shrink: 0;
 }
 
+.welcome-photo {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--accent-green);
+  flex-shrink: 0;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.4);
+}
+
 .welcome-text {
   font-size: 0.9rem;
   color: var(--text-secondary);

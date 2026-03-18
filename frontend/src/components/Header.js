@@ -1,10 +1,12 @@
 import React from 'react';
 import './Header.css';
 
-export default function Header({ selectedMember, liveTime }) {
+export default function Header({ selectedMember, liveTime, memberPhoto }) {
   return (
     <header className="app-header">
       <div className="header-inner">
+
+        {/* Brand */}
         <div className="header-brand">
           <div className="brand-icon">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -18,10 +20,19 @@ export default function Header({ selectedMember, liveTime }) {
           </div>
         </div>
 
+        {/* Center welcome with photo */}
         <div className="header-center">
           {selectedMember ? (
             <div className="welcome-badge animate-in">
-              <div className="welcome-dot" />
+              {memberPhoto ? (
+                <img
+                  src={memberPhoto}
+                  alt={selectedMember}
+                  className="welcome-photo"
+                />
+              ) : (
+                <div className="welcome-dot" />
+              )}
               <span className="welcome-text">
                 Welcome, <strong>{selectedMember}</strong>
               </span>
@@ -33,10 +44,12 @@ export default function Header({ selectedMember, liveTime }) {
           )}
         </div>
 
+        {/* Clock */}
         <div className="header-clock">
           <div className="clock-time">{liveTime.time}</div>
           <div className="clock-date">{liveTime.display}</div>
         </div>
+
       </div>
     </header>
   );
