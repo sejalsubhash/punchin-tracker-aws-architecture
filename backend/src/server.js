@@ -6,9 +6,6 @@ const { SNSClient, PublishCommand } = require("@aws-sdk/client-sns");
 const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
 const { v4: uuidv4 } = require("uuid");
 const path = require("path");
-const http  = require("http");    
-const https = require("https");   
-
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -409,9 +406,7 @@ app.get("/api/backup/status", (req, res) => {
   });
 });
 
-// ─── POST /api/upload-photo — proxy to Private EC2 via ALB ───────────────────
-// React calls this HTTPS Render endpoint → Render forwards to HTTP ALB
-// This solves the mixed content (HTTPS→HTTP) browser blocking issue
+// ─── POST /api/upload-photo — proxy to Lambda via API Gateway ────────────────
 app.post("/api/upload-photo", async (req, res) => {
   const PHOTO_API = process.env.PHOTO_API_URL;
 
@@ -420,38 +415,19 @@ app.post("/api/upload-photo", async (req, res) => {
   }
 
   try {
-    // Increase limit for base64 image payload
-    const payload = JSON.stringify(req.body);
+    const targetUrl = `${PHOTO_API.replace(/\/$/, "")}/upload-photo`;
+    console.log(`📤 Proxying photo upload to: ${targetUrl}`);
 
-    const albUrl  = new URL(`${PHOTO_API}/upload-photo`);
-    const options = {
-      hostname: albUrl.hostname,
-      port:     albUrl.port || 80,
-      path:     albUrl.pathname,
-      method:   "POST",
-      headers: {
-        "Content-Type":   "application/json",
-        "Content-Length": Buffer.byteLength(payload),
-      },
-    };
-
-    const protocol = albUrl.protocol === "https:" ? https : http;
-
-    const proxyReq = protocol.request(options, (proxyRes) => {
-      let data = "";
-      proxyRes.on("data", (chunk) => { data += chunk; });
-      proxyRes.on("end", () => {
-        res.status(proxyRes.statusCode).json(JSON.parse(data));
-      });
+    const response = await fetch(targetUrl, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify(req.body),
     });
 
-    proxyReq.on("error", (err) => {
-      console.error("❌ Proxy error:", err.message);
-      res.status(502).json({ error: "Failed to reach photo API", details: err.message });
-    });
+    const data = await response.json();
+    console.log(`✅ Proxy response status: ${response.status}`);
+    res.status(response.status).json(data);
 
-    proxyReq.write(payload);
-    proxyReq.end();
   } catch (err) {
     console.error("❌ Upload proxy error:", err.message);
     res.status(500).json({ error: "Proxy failed", details: err.message });
