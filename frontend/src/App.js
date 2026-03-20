@@ -94,8 +94,37 @@ export default function App() {
 
     setPunchLoading(true);
     try {
-      // Punch-in with photo → proxy through Render backend to Private EC2
+      // Punch-in with photo → verify face first, then upload
       if (action === 'punch-in' && photo) {
+
+        // ── Step 1: Verify face with Rekognition ──────────────────────────
+        try {
+          addToast('info', 'Verifying...', 'Checking face identity...');
+          const verifyRes  = await fetch('/api/verify-face', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ name: selectedMember, photo }),
+          });
+          const verifyData = await verifyRes.json();
+
+          if (verifyRes.status === 404) {
+            // Face not registered — warn but allow punch-in
+            addToast('warning', 'Face Not Registered',
+              `${selectedMember} has not registered their face. Please register for verification.`);
+          } else if (!verifyData.verified) {
+            // Face mismatch — block punch-in
+            addToast('error', 'Face Verification Failed',
+              'Your face does not match the registered photo. Punch-in blocked. Team lead has been alerted.');
+            setPunchLoading(false);
+            return;
+          } else {
+            addToast('success', `Identity Verified ✓`, `${verifyData.similarity}% match — proceeding...`);
+          }
+        } catch (verifyErr) {
+          console.warn('Face verification skipped:', verifyErr.message);
+        }
+
+        // ── Step 2: Upload photo ───────────────────────────────────────────
         const response = await fetch(`/api/upload-photo`, {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },

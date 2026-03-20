@@ -4,6 +4,14 @@ const cors = require("cors");
 const couchbase = require("couchbase");
 const { SNSClient, PublishCommand } = require("@aws-sdk/client-sns");
 const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
+const {
+  RekognitionClient,
+  CreateCollectionCommand,
+  IndexFacesCommand,
+  SearchFacesByImageCommand,
+  DeleteFacesCommand,
+  ListFacesCommand,
+} = require("@aws-sdk/client-rekognition");
 const { v4: uuidv4 } = require("uuid");
 const path = require("path");
 
@@ -100,6 +108,38 @@ const s3Client = new S3Client({
 });
 
 const S3_BUCKET = process.env.S3_BUCKET_NAME;
+// ─── AWS Rekognition Setup ─────────────────────────────────────────────────────
+const rekognitionClient = new RekognitionClient({
+  region: process.env.AWS_REGION || "us-east-1",
+  credentials: {
+    accessKeyId:     process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  },
+});
+
+const REKOGNITION_COLLECTION = process.env.REKOGNITION_COLLECTION || "punch-tracker-faces";
+const FACE_MATCH_THRESHOLD   = parseFloat(process.env.FACE_MATCH_THRESHOLD || "80");
+
+async function initRekognitionCollection() {
+  if (!process.env.AWS_ACCESS_KEY_ID) {
+    console.warn("⚠️  AWS credentials not set — Rekognition disabled");
+    return;
+  }
+  try {
+    await rekognitionClient.send(
+      new CreateCollectionCommand({ CollectionId: REKOGNITION_COLLECTION })
+    );
+    console.log(`✅ Rekognition: Collection '${REKOGNITION_COLLECTION}' created`);
+  } catch (err) {
+    if (err.name === "ResourceAlreadyExistsException") {
+      console.log(`✅ Rekognition: Collection '${REKOGNITION_COLLECTION}' already exists`);
+    } else {
+      console.error("❌ Rekognition collection error:", err.message);
+    }
+  }
+}
+
+
 
 // Convert records array to CSV string
 function recordsToCSV(records) {
@@ -406,6 +446,215 @@ app.get("/api/backup/status", (req, res) => {
   });
 });
 
+
+// ─── POST /api/register-face — register a member's face ───────────────────────
+app.post("/api/register-face", async (req, res) => {
+  const { name, photo } = req.body;
+
+  if (!name || !photo) {
+    return res.status(400).json({ error: "Missing required fields: name, photo" });
+  }
+
+  try {
+    // Decode base64 photo
+    const base64Data  = photo.replace(/^data:image\/\w+;base64,/, "");
+    const imageBuffer = Buffer.from(base64Data, "base64");
+
+    // Check if member already has a registered face
+    const existingQuery = `
+      SELECT META().id AS id, doc.*
+      FROM \`${CB_BUCKET}\`.\`${CB_SCOPE}\`.\`${CB_COLLECTION}\` AS doc
+      WHERE doc.type = 'face_registration' AND LOWER(doc.name) = LOWER($1)
+      LIMIT 1
+    `;
+    const existingResult = await cluster.query(existingQuery, { parameters: [name] });
+
+    // If already registered, delete old face from Rekognition first
+    if (existingResult.rows.length > 0) {
+      const oldRec = existingResult.rows[0];
+      if (oldRec.faceId) {
+        try {
+          await rekognitionClient.send(new DeleteFacesCommand({
+            CollectionId: REKOGNITION_COLLECTION,
+            FaceIds:      [oldRec.faceId],
+          }));
+          console.log(`✅ Deleted old face for ${name}`);
+        } catch (e) {
+          console.warn("⚠️  Could not delete old face:", e.message);
+        }
+      }
+      // Delete old registration from Couchbase
+      try {
+        await collection.remove(oldRec.id);
+      } catch (e) { /* ignore */ }
+    }
+
+    // Index face in Rekognition
+    const indexResult = await rekognitionClient.send(new IndexFacesCommand({
+      CollectionId:    REKOGNITION_COLLECTION,
+      Image:           { Bytes: imageBuffer },
+      ExternalImageId: name.replace(/\s+/g, "_"),
+      MaxFaces:        1,
+      QualityFilter:   "AUTO",
+    }));
+
+    if (!indexResult.FaceRecords || indexResult.FaceRecords.length === 0) {
+      return res.status(400).json({
+        error: "No face detected in photo. Please take a clear front-facing photo.",
+      });
+    }
+
+    const faceId     = indexResult.FaceRecords[0].Face.FaceId;
+    const confidence = indexResult.FaceRecords[0].Face.Confidence;
+
+    // Save registration record in Couchbase
+    const docId = `face::${uuidv4()}`;
+    await collection.insert(docId, {
+      type:        "face_registration",
+      name,
+      faceId,
+      confidence,
+      registeredAt: new Date().toISOString(),
+      createdAt:    Date.now(),
+    });
+
+    console.log(`✅ Face registered for ${name} — FaceId: ${faceId}`);
+
+    res.status(201).json({
+      success:    true,
+      message:    `Face registered successfully for ${name}`,
+      faceId,
+      confidence: Math.round(confidence),
+    });
+
+  } catch (err) {
+    console.error("❌ Register face error:", err.message);
+    res.status(500).json({ error: "Face registration failed", details: err.message });
+  }
+});
+
+// ─── POST /api/verify-face — verify face before punch in ──────────────────────
+app.post("/api/verify-face", async (req, res) => {
+  const { name, photo } = req.body;
+
+  if (!name || !photo) {
+    return res.status(400).json({ error: "Missing required fields: name, photo" });
+  }
+
+  try {
+    // Check if member has registered face
+    const regQuery = `
+      SELECT META().id AS id, doc.*
+      FROM \`${CB_BUCKET}\`.\`${CB_SCOPE}\`.\`${CB_COLLECTION}\` AS doc
+      WHERE doc.type = 'face_registration' AND LOWER(doc.name) = LOWER($1)
+      LIMIT 1
+    `;
+    const regResult = await cluster.query(regQuery, { parameters: [name] });
+
+    if (regResult.rows.length === 0) {
+      return res.status(404).json({
+        error:      "Face not registered",
+        message:    `${name} has not registered their face yet. Please register first.`,
+        registered: false,
+      });
+    }
+
+    // Decode base64 photo
+    const base64Data  = photo.replace(/^data:image\/\w+;base64,/, "");
+    const imageBuffer = Buffer.from(base64Data, "base64");
+
+    // Search face in Rekognition collection
+    const searchResult = await rekognitionClient.send(new SearchFacesByImageCommand({
+      CollectionId:       REKOGNITION_COLLECTION,
+      Image:              { Bytes: imageBuffer },
+      MaxFaces:           1,
+      FaceMatchThreshold: FACE_MATCH_THRESHOLD,
+    }));
+
+    if (!searchResult.FaceMatches || searchResult.FaceMatches.length === 0) {
+      // Face not matched — send alert to team lead
+      const alertMsg =
+        `⚠️ Face Verification Failed\n\n` +
+        `Team Member: ${name}\n` +
+        `Status: Face did not match registered photo\n` +
+        `Time: ${new Date().toISOString()}\n` +
+        `Action: Punch-in was blocked\n\n` +
+        `– Punch Tracker Security Alert`;
+
+      await sendSNSNotification(alertMsg);
+
+      return res.status(401).json({
+        verified:   false,
+        message:    "Face verification failed. Your face does not match the registered photo.",
+        similarity: 0,
+      });
+    }
+
+    const match      = searchResult.FaceMatches[0];
+    const similarity = Math.round(match.Similarity);
+    const matchedId  = match.Face.ExternalImageId?.replace(/_/g, " ");
+
+    console.log(`✅ Face verified for ${name} — Similarity: ${similarity}%`);
+
+    res.json({
+      verified:    true,
+      similarity,
+      matchedName: matchedId,
+      message:     `Face verified successfully — ${similarity}% match`,
+    });
+
+  } catch (err) {
+    console.error("❌ Verify face error:", err.message);
+
+    // If image quality issue
+    if (err.name === "InvalidParameterException") {
+      return res.status(400).json({
+        error:    "No face detected in photo",
+        message:  "Please take a clear, well-lit front-facing photo",
+        verified: false,
+      });
+    }
+
+    res.status(500).json({ error: "Face verification failed", details: err.message });
+  }
+});
+
+// ─── GET /api/face-status/:name — check if member has registered face ──────────
+app.get("/api/face-status/:name", async (req, res) => {
+  try {
+    const query = `
+      SELECT META().id AS id, doc.name, doc.registeredAt, doc.confidence
+      FROM \`${CB_BUCKET}\`.\`${CB_SCOPE}\`.\`${CB_COLLECTION}\` AS doc
+      WHERE doc.type = 'face_registration' AND LOWER(doc.name) = LOWER($1)
+      LIMIT 1
+    `;
+    const result = await cluster.query(query, { parameters: [req.params.name] });
+    res.json({
+      registered:   result.rows.length > 0,
+      registeredAt: result.rows[0]?.registeredAt || null,
+      confidence:   result.rows[0]?.confidence   || null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to check face status" });
+  }
+});
+
+// ─── GET /api/face-registrations — list all registered members ─────────────────
+app.get("/api/face-registrations", async (req, res) => {
+  try {
+    const query = `
+      SELECT doc.name, doc.registeredAt, doc.confidence
+      FROM \`${CB_BUCKET}\`.\`${CB_SCOPE}\`.\`${CB_COLLECTION}\` AS doc
+      WHERE doc.type = 'face_registration'
+      ORDER BY doc.createdAt DESC
+    `;
+    const result = await cluster.query(query);
+    res.json({ registrations: result.rows });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch registrations" });
+  }
+});
+
 // ─── POST /api/upload-photo — proxy to Lambda via API Gateway ────────────────
 app.post("/api/upload-photo", async (req, res) => {
   const PHOTO_API = process.env.PHOTO_API_URL;
@@ -443,7 +692,8 @@ if (process.env.NODE_ENV === "production") {
 }
 
 // ─── Start Server ──────────────────────────────────────────────────────────────
-initCouchbase().then(() => {
+initCouchbase().then(async () => {
+  await initRekognitionCollection();
   app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`🌍 Environment: ${process.env.NODE_ENV || "development"}`);

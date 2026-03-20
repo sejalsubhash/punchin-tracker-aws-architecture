@@ -16,7 +16,8 @@
     "couchbase": "^4.3.0",
     "uuid": "^9.0.0",
     "@aws-sdk/client-sns": "^3.450.0",
-    "@aws-sdk/client-s3": "^3.450.0"
+    "@aws-sdk/client-s3": "^3.450.0",
+    "@aws-sdk/client-rekognition": "^3.450.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"
