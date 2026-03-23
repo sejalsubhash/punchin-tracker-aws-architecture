@@ -1,0 +1,294 @@
+/* ── Auth Page Layout ────────────────────────────────────────────────────────── */
+.auth-page {
+  min-height: 100vh;
+  background: var(--bg-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+}
+
+.auth-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  padding: 36px 32px;
+  width: 100%;
+  max-width: 440px;
+  box-shadow: var(--shadow-md);
+}
+
+/* ── Brand ───────────────────────────────────────────────────────────────────── */
+.auth-brand {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.auth-brand-icon {
+  font-size: 2.2rem;
+  margin-bottom: 8px;
+}
+
+.auth-brand-name {
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: .1em;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.auth-brand-name span { color: var(--accent-blue); }
+
+.auth-brand-sub {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+  font-weight: 500;
+}
+
+/* ── Stepper ─────────────────────────────────────────────────────────────────── */
+.stepper {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0;
+  margin-bottom: 24px;
+}
+
+.step-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  position: relative;
+  flex: 1;
+}
+
+.step-dot {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid var(--border-color);
+  background: var(--bg-input);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  transition: var(--transition);
+  z-index: 1;
+}
+
+.step-item.active .step-dot {
+  border-color: var(--accent-blue);
+  background: var(--accent-blue);
+  color: white;
+}
+
+.step-item.done .step-dot {
+  border-color: var(--accent-green);
+  background: var(--accent-green);
+  color: white;
+}
+
+.step-label {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.step-item.active .step-label { color: var(--accent-blue); }
+.step-item.done .step-label   { color: var(--accent-green); }
+
+.step-line {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  width: 100%;
+  height: 2px;
+  background: var(--border-color);
+  z-index: 0;
+}
+
+.step-line.done { background: var(--accent-green); }
+
+/* ── Form ────────────────────────────────────────────────────────────────────── */
+.auth-form { display: flex; flex-direction: column; gap: 14px; }
+
+.auth-desc {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.auth-field { display: flex; flex-direction: column; gap: 5px; }
+
+.auth-field label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.auth-field input {
+  padding: 10px 14px;
+  border: 1.5px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-family: var(--font-body);
+  transition: var(--transition);
+}
+
+.auth-field input:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 3px var(--accent-blue-glow);
+  background: var(--bg-secondary);
+}
+
+.otp-input {
+  font-family: var(--font-display) !important;
+  font-size: 1.6rem !important;
+  letter-spacing: 0.3em;
+  text-align: center;
+  padding: 14px !important;
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────────── */
+.auth-btn {
+  padding: 11px 20px;
+  border-radius: var(--radius-md);
+  border: none;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: var(--transition);
+  font-family: var(--font-body);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.auth-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.auth-btn--primary {
+  background: var(--accent-blue);
+  color: white;
+  box-shadow: var(--shadow-glow-blue);
+}
+
+.auth-btn--primary:hover:not(:disabled) {
+  opacity: 0.92;
+  transform: translateY(-1px);
+}
+
+.auth-btn--outline {
+  background: var(--bg-input);
+  border: 1.5px solid var(--accent-blue);
+  color: var(--accent-blue);
+}
+
+.auth-btn--outline:hover:not(:disabled) {
+  background: var(--accent-blue-light);
+}
+
+.auth-btn--ghost {
+  background: transparent;
+  border: 1.5px solid var(--border-color);
+  color: var(--text-secondary);
+}
+
+.auth-btn--ghost:hover { border-color: var(--accent-blue); color: var(--accent-blue); }
+
+/* ── Error ───────────────────────────────────────────────────────────────────── */
+.auth-error {
+  background: var(--accent-red-light);
+  border: 1px solid rgba(220,38,38,.2);
+  color: var(--accent-red);
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+/* ── Camera ──────────────────────────────────────────────────────────────────── */
+.auth-camera {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.auth-camera-btns {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.face-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.face-preview-img {
+  width: 140px;
+  height: 140px;
+  object-fit: cover;
+  border-radius: 50%;
+  border: 3px solid var(--accent-green);
+  box-shadow: 0 0 0 4px var(--accent-green-light);
+}
+
+.face-preview-label {
+  font-size: 0.78rem;
+  color: var(--accent-green);
+  font-weight: 700;
+}
+
+/* ── Success ─────────────────────────────────────────────────────────────────── */
+.auth-success {
+  text-align: center;
+  align-items: center;
+}
+
+.success-icon { font-size: 3rem; margin-bottom: 8px; }
+
+.auth-success h2 {
+  font-size: 1.2rem;
+  color: var(--text-primary);
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+
+.auth-success p {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin: 4px 0;
+}
+
+/* ── Footer link ─────────────────────────────────────────────────────────────── */
+.auth-footer {
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.auth-footer a {
+  color: var(--accent-blue);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.auth-footer a:hover { text-decoration: underline; }

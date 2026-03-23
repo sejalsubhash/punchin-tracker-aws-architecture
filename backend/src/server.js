@@ -14,6 +14,9 @@ const {
 } = require("@aws-sdk/client-rekognition");
 const { v4: uuidv4 } = require("uuid");
 const path = require("path");
+const authRoutes  = require("./routes/authRoutes");
+const adminRoutes = require("./routes/adminRoutes");
+const { verifyToken } = require("./middleware/authMiddleware");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -683,6 +686,23 @@ app.post("/api/upload-photo", async (req, res) => {
   }
 });
 
+// ─── Mount Auth & Admin Routes ────────────────────────────────────────────────
+authRoutes.locals.cluster       = null; // set after initCouchbase
+authRoutes.locals.collection    = null;
+authRoutes.locals.CB_BUCKET     = CB_BUCKET;
+authRoutes.locals.CB_SCOPE      = CB_SCOPE;
+authRoutes.locals.CB_COLLECTION = CB_COLLECTION;
+authRoutes.locals.sendSNSNotification = sendSNSNotification;
+
+adminRoutes.locals.cluster       = null;
+adminRoutes.locals.collection    = null;
+adminRoutes.locals.CB_BUCKET     = CB_BUCKET;
+adminRoutes.locals.CB_SCOPE      = CB_SCOPE;
+adminRoutes.locals.CB_COLLECTION = CB_COLLECTION;
+
+app.use("/api/auth",  authRoutes);
+app.use("/api/admin", adminRoutes);
+
 // ─── Serve React Build in Production ──────────────────────────────────────────
 if (process.env.NODE_ENV === "production") {
   app.use(express.static(path.join(__dirname, "../../frontend/build")));
@@ -693,6 +713,11 @@ if (process.env.NODE_ENV === "production") {
 
 // ─── Start Server ──────────────────────────────────────────────────────────────
 initCouchbase().then(async () => {
+  // Inject Couchbase refs into routes
+  authRoutes.locals.cluster    = cluster;
+  authRoutes.locals.collection = collection;
+  adminRoutes.locals.cluster    = cluster;
+  adminRoutes.locals.collection = collection;
   await initRekognitionCollection();
   app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
