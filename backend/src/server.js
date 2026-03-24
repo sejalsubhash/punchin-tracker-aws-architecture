@@ -686,22 +686,19 @@ app.post("/api/upload-photo", async (req, res) => {
   }
 });
 
+// ─── Shared DB context for routes ─────────────────────────────────────────────
+const dbContext = {
+  cluster:    null,
+  collection: null,
+  CB_BUCKET,
+  CB_SCOPE,
+  CB_COLLECTION,
+  sendSNSNotification,
+};
+
 // ─── Mount Auth & Admin Routes ────────────────────────────────────────────────
-authRoutes.locals.cluster       = null; // set after initCouchbase
-authRoutes.locals.collection    = null;
-authRoutes.locals.CB_BUCKET     = CB_BUCKET;
-authRoutes.locals.CB_SCOPE      = CB_SCOPE;
-authRoutes.locals.CB_COLLECTION = CB_COLLECTION;
-authRoutes.locals.sendSNSNotification = sendSNSNotification;
-
-adminRoutes.locals.cluster       = null;
-adminRoutes.locals.collection    = null;
-adminRoutes.locals.CB_BUCKET     = CB_BUCKET;
-adminRoutes.locals.CB_SCOPE      = CB_SCOPE;
-adminRoutes.locals.CB_COLLECTION = CB_COLLECTION;
-
-app.use("/api/auth",  authRoutes);
-app.use("/api/admin", adminRoutes);
+app.use("/api/auth",  authRoutes(dbContext));
+app.use("/api/admin", adminRoutes(dbContext));
 
 // ─── Serve React Build in Production ──────────────────────────────────────────
 if (process.env.NODE_ENV === "production") {
@@ -713,11 +710,9 @@ if (process.env.NODE_ENV === "production") {
 
 // ─── Start Server ──────────────────────────────────────────────────────────────
 initCouchbase().then(async () => {
-  // Inject Couchbase refs into routes
-  authRoutes.locals.cluster    = cluster;
-  authRoutes.locals.collection = collection;
-  adminRoutes.locals.cluster    = cluster;
-  adminRoutes.locals.collection = collection;
+  // Inject Couchbase refs into shared context
+  dbContext.cluster    = cluster;
+  dbContext.collection = collection;
   await initRekognitionCollection();
   app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
