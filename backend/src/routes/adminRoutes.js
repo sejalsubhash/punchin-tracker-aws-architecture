@@ -1,6 +1,5 @@
 const express = require("express");
 const { verifyAdmin } = require("../middleware/authMiddleware");
-const { sendStatusEmail } = require("../middleware/emailUtils");
 const {
   CognitoIdentityProviderClient,
   AdminUpdateUserAttributesCommand,
@@ -16,6 +15,7 @@ const cognitoClient = new CognitoIdentityProviderClient({
 });
 
 const POOL_ID = process.env.COGNITO_USER_POOL_ID;
+const APP_URL = process.env.APP_URL || "https://secure-punch-in-tracker.onrender.com";
 
 module.exports = function(db) {
   const router = express.Router();
@@ -28,26 +28,44 @@ module.exports = function(db) {
   // ── GET /api/admin/users ────────────────────────────────────────────────────
   router.get("/users", verifyAdmin, async (req, res) => {
     try {
-      // Get all users from Cognito
       const result = await cognitoClient.send(new AdminListUsersCommand({
         UserPoolId: POOL_ID,
         Limit: 60,
       }));
 
-      const users = result.Users.map(u => {
+      const usersPromises = result.Users.map(async u => {
         const attrs = {};
         u.Attributes.forEach(a => { attrs[a.Name] = a.Value; });
-        return {
-          id:          u.Username,
-          name:        attrs["name"]           || "",
-          email:       attrs["email"]          || u.Username,
-          role:        attrs["custom:role"]    || "member",
-          status:      attrs["custom:status"]  || "pending",
-          confirmed:   u.UserStatus === "CONFIRMED",
-          createdAt:   u.UserCreateDate,
-        };
-      }).filter(u => u.role !== "admin");
 
+        const email   = attrs["email"] || u.Username;
+        const role    = attrs["custom:role"]   || "member";
+        const status  = attrs["custom:status"] || "pending";
+        const faceId  = attrs["custom:faceId"] || "";
+
+        if (role === "admin") return null;
+
+        // Get face photo from Couchbase pending_user doc
+        let facePhoto = "";
+        try {
+          const docId    = `user_pending::${email.replace(/[^a-z0-9]/g, "_")}`;
+          const docResult = await db.collection.get(docId);
+          facePhoto = docResult.content.facePhoto || "";
+        } catch (e) {}
+
+        return {
+          id:        u.Username,
+          name:      attrs["name"]  || "",
+          email,
+          role,
+          status,
+          faceId,
+          facePhoto,
+          confirmed: u.UserStatus === "CONFIRMED",
+          createdAt: u.UserCreateDate,
+        };
+      });
+
+      const users = (await Promise.all(usersPromises)).filter(Boolean);
       res.json({ users });
     } catch (err) {
       console.error("❌ List users error:", err.message);
@@ -63,26 +81,32 @@ module.exports = function(db) {
       await cognitoClient.send(new AdminUpdateUserAttributesCommand({
         UserPoolId: POOL_ID,
         Username:   email,
-        UserAttributes: [
-          { Name: "custom:status", Value: "approved" },
-        ],
+        UserAttributes: [{ Name: "custom:status", Value: "approved" }],
       }));
 
-      // Get user name for email
+      // Get user name
       const result = await cognitoClient.send(new AdminListUsersCommand({
         UserPoolId: POOL_ID,
         Filter:     `email = "${email}"`,
-        Limit:      1,
+        Limit: 1,
       }));
-
-      let name = email;
+      const attrs = {};
       if (result.Users.length > 0) {
-        const nameAttr = result.Users[0].Attributes.find(a => a.Name === "name");
-        if (nameAttr) name = nameAttr.Value;
+        result.Users[0].Attributes.forEach(a => { attrs[a.Name] = a.Value; });
       }
+      const name = attrs["name"] || email;
 
-      // Send approval email via SES
-      await sendStatusEmail(email, name, "approved");
+      // Send approval SNS notification to user
+      if (db.sendSNSNotification) {
+        await db.sendSNSNotification(
+          `✅ Account Approved\n\n` +
+          `Hello ${name},\n\n` +
+          `Your Punch Tracker account has been approved by the admin.\n` +
+          `You can now login and start marking your attendance.\n\n` +
+          `Login here: ${APP_URL}/login\n\n` +
+          `– Punch Tracker System`
+        );
+      }
 
       console.log(`✅ Admin approved: ${name} (${email})`);
       res.json({ success: true, message: `${name} has been approved` });
@@ -99,24 +123,30 @@ module.exports = function(db) {
       await cognitoClient.send(new AdminUpdateUserAttributesCommand({
         UserPoolId: POOL_ID,
         Username:   email,
-        UserAttributes: [
-          { Name: "custom:status", Value: "rejected" },
-        ],
+        UserAttributes: [{ Name: "custom:status", Value: "rejected" }],
       }));
 
       const result = await cognitoClient.send(new AdminListUsersCommand({
         UserPoolId: POOL_ID,
         Filter:     `email = "${email}"`,
-        Limit:      1,
+        Limit: 1,
       }));
-
-      let name = email;
+      const attrs = {};
       if (result.Users.length > 0) {
-        const nameAttr = result.Users[0].Attributes.find(a => a.Name === "name");
-        if (nameAttr) name = nameAttr.Value;
+        result.Users[0].Attributes.forEach(a => { attrs[a.Name] = a.Value; });
       }
+      const name = attrs["name"] || email;
 
-      await sendStatusEmail(email, name, "rejected");
+      // Send rejection SNS notification to user
+      if (db.sendSNSNotification) {
+        await db.sendSNSNotification(
+          `❌ Account Rejected\n\n` +
+          `Hello ${name},\n\n` +
+          `Unfortunately, your Punch Tracker account registration has been rejected by the admin.\n` +
+          `Please contact your administrator for more information.\n\n` +
+          `– Punch Tracker System`
+        );
+      }
 
       console.log(`✅ Admin rejected: ${name} (${email})`);
       res.json({ success: true, message: `${name} has been rejected` });
@@ -130,7 +160,7 @@ module.exports = function(db) {
   router.delete("/records/:id", verifyAdmin, async (req, res) => {
     try {
       await db.collection.remove(req.params.id);
-      res.json({ success: true, message: "Record deleted by admin" });
+      res.json({ success: true, message: "Record deleted" });
     } catch (err) {
       res.status(500).json({ error: "Delete failed", details: err.message });
     }
@@ -140,50 +170,27 @@ module.exports = function(db) {
   router.get("/stats", verifyAdmin, async (req, res) => {
     try {
       const today = new Date().toISOString().slice(0, 10);
-
-      // Get user counts from Cognito
       const allUsers = await cognitoClient.send(new AdminListUsersCommand({
-        UserPoolId: POOL_ID,
-        Limit: 60,
+        UserPoolId: POOL_ID, Limit: 60,
       }));
 
-      const members = allUsers.Users.filter(u => {
+      let pending = 0, approved = 0, rejected = 0;
+      allUsers.Users.forEach(u => {
         const attrs = {};
         u.Attributes.forEach(a => { attrs[a.Name] = a.Value; });
-        return attrs["custom:role"] !== "admin";
+        if (attrs["custom:role"] === "admin") return;
+        const s = attrs["custom:status"] || "pending";
+        if (s === "pending")  pending++;
+        if (s === "approved") approved++;
+        if (s === "rejected") rejected++;
       });
 
-      const pending  = members.filter(u => {
-        const attrs = {};
-        u.Attributes.forEach(a => { attrs[a.Name] = a.Value; });
-        return attrs["custom:status"] === "pending";
-      }).length;
-
-      const approved = members.filter(u => {
-        const attrs = {};
-        u.Attributes.forEach(a => { attrs[a.Name] = a.Value; });
-        return attrs["custom:status"] === "approved";
-      }).length;
-
-      const rejected = members.filter(u => {
-        const attrs = {};
-        u.Attributes.forEach(a => { attrs[a.Name] = a.Value; });
-        return attrs["custom:status"] === "rejected";
-      }).length;
-
-      // Get today punch count from Couchbase
       const todayResult = await queryDB(
         `SELECT COUNT(*) AS cnt FROM \`${db.CB_BUCKET}\`.\`${db.CB_SCOPE}\`.\`${db.CB_COLLECTION}\` AS doc
-         WHERE doc.type = 'punch_record' AND doc.date = $1`,
-        [today]
+         WHERE doc.type = 'punch_record' AND doc.date = $1`, [today]
       );
 
-      res.json({
-        pendingUsers:  pending,
-        approvedUsers: approved,
-        rejectedUsers: rejected,
-        todayPunches:  todayResult[0]?.cnt || 0,
-      });
+      res.json({ pendingUsers: pending, approvedUsers: approved, rejectedUsers: rejected, todayPunches: todayResult[0]?.cnt || 0 });
     } catch (err) {
       console.error("❌ Stats error:", err.message);
       res.status(500).json({ error: "Failed to fetch stats" });

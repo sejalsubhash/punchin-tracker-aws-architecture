@@ -19,10 +19,11 @@ export default function AdminDashboard() {
   const [loading, setLoading]             = useState(true);
   const [actionLoading, setActionLoading] = useState(null);
   const [toast, setToast]                 = useState(null);
+  const [viewFace, setViewFace]           = useState(null);
 
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type });
-    setTimeout(() => setToast(null), 3500);
+    setTimeout(() => setToast(null), 4000);
   };
 
   const loadData = useCallback(async () => {
@@ -33,13 +34,13 @@ export default function AdminDashboard() {
         authFetch('/api/records'),
         authFetch('/api/admin/stats'),
       ]);
-      const usersData   = await usersRes.json();
-      const recordsData = await recordsRes.json();
-      const statsData   = await statsRes.json();
-      setUsers(usersData.users     || []);
-      setRecords(recordsData.records || []);
-      setStats(statsData);
-    } catch (err) {
+      const ud = await usersRes.json();
+      const rd = await recordsRes.json();
+      const sd = await statsRes.json();
+      setUsers(ud.users     || []);
+      setRecords(rd.records || []);
+      setStats(sd);
+    } catch {
       showToast('Failed to load data', 'error');
     } finally {
       setLoading(false);
@@ -54,13 +55,10 @@ export default function AdminDashboard() {
       const res  = await authFetch(`/api/admin/approve/${encodeURIComponent(userEmail)}`, { method: 'POST' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      showToast(`✅ ${userName} approved successfully`);
+      showToast(`✅ ${userName} approved — email sent to user`);
       loadData();
-    } catch (err) {
-      showToast(err.message, 'error');
-    } finally {
-      setActionLoading(null);
-    }
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { setActionLoading(null); }
   };
 
   const handleReject = async (userEmail, userName) => {
@@ -70,13 +68,10 @@ export default function AdminDashboard() {
       const res  = await authFetch(`/api/admin/reject/${encodeURIComponent(userEmail)}`, { method: 'POST' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      showToast(`${userName} rejected`, 'warning');
+      showToast(`${userName} rejected — email sent to user`, 'warning');
       loadData();
-    } catch (err) {
-      showToast(err.message, 'error');
-    } finally {
-      setActionLoading(null);
-    }
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { setActionLoading(null); }
   };
 
   const handleDeleteRecord = async (recordId) => {
@@ -86,9 +81,7 @@ export default function AdminDashboard() {
       if (!res.ok) throw new Error('Delete failed');
       showToast('Record deleted');
       loadData();
-    } catch (err) {
-      showToast(err.message, 'error');
-    }
+    } catch (err) { showToast(err.message, 'error'); }
   };
 
   const pendingUsers  = users.filter(u => u.status === 'pending');
@@ -97,7 +90,6 @@ export default function AdminDashboard() {
 
   return (
     <div className="admin-page">
-      {/* Header */}
       <header className="admin-header">
         <div className="admin-header-inner">
           <div className="admin-brand">
@@ -109,9 +101,7 @@ export default function AdminDashboard() {
           </div>
           <div className="admin-user">
             <span>👤 {user?.name}</span>
-            <button className="admin-logout" onClick={() => { logout(); navigate('/login'); }}>
-              Logout
-            </button>
+            <button className="admin-logout" onClick={() => { logout(); navigate('/login'); }}>Logout</button>
           </div>
         </div>
       </header>
@@ -140,10 +130,10 @@ export default function AdminDashboard() {
         {/* Tabs */}
         <div className="admin-tabs">
           {[
-            { key: 'pending',  label: `Pending (${pendingUsers.length})` },
-            { key: 'approved', label: `Approved (${approvedUsers.length})` },
-            { key: 'rejected', label: `Rejected (${rejectedUsers.length})` },
-            { key: 'records',  label: `Attendance (${records.length})` },
+            { key: 'pending',  label: `⏳ Pending (${pendingUsers.length})` },
+            { key: 'approved', label: `✅ Approved (${approvedUsers.length})` },
+            { key: 'rejected', label: `❌ Rejected (${rejectedUsers.length})` },
+            { key: 'records',  label: `📋 Attendance (${records.length})` },
           ].map(tab => (
             <button key={tab.key}
               className={`admin-tab ${activeTab === tab.key ? 'active' : ''}`}
@@ -155,161 +145,175 @@ export default function AdminDashboard() {
 
         <div className="admin-card">
           {loading ? (
-            <div className="admin-loading">
-              <div className="admin-spinner" />
-              Loading...
-            </div>
+            <div className="admin-loading"><div className="admin-spinner" />Loading...</div>
           ) : (
             <>
               {/* Pending Users */}
               {activeTab === 'pending' && (
-                <div>
-                  {pendingUsers.length === 0 ? (
-                    <div className="admin-empty">
-                      <div style={{ fontSize: '2.5rem', marginBottom: '8px' }}>✅</div>
-                      No pending registrations
-                    </div>
-                  ) : (
-                    <table className="admin-table">
-                      <thead><tr>
-                        <th>Face</th>
-                        <th>Name</th>
-                        <th>Email</th>
-                        <th>Registered</th>
-                        <th>Email Status</th>
-                        <th>Actions</th>
-                      </tr></thead>
-                      <tbody>
-                        {pendingUsers.map(u => (
-                          <tr key={u.id}>
-                            <td>
-                              {u.faceId ? (
-                                <div className="face-registered-badge" title="Face registered ✅">
-                                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2">
-                                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-                                    <circle cx="12" cy="7" r="4"/>
-                                  </svg>
-                                  <span className="face-ok">✓</span>
-                                </div>
-                              ) : (
-                                <span className="face-missing" title="Face not registered">👤❌</span>
-                              )}
-                            </td>
-                            <td><strong>{u.name}</strong></td>
-                            <td style={{ fontSize: '0.82rem' }}>{u.email}</td>
-                            <td>{formatDate(u.createdAt)}</td>
-                            <td>
-                              <span className={`status-badge ${u.confirmed ? 'status--approved' : 'status--pending'}`}>
-                                {u.confirmed ? '✅ Verified' : '⏳ Pending'}
-                              </span>
-                            </td>
-                            <td>
-                              <div className="admin-actions">
-                                <button
-                                  className="admin-btn admin-btn--approve"
-                                  disabled={actionLoading === u.email || !u.confirmed}
-                                  title={!u.confirmed ? 'User must verify email first' : `Approve ${u.name}`}
-                                  onClick={() => handleApprove(u.email, u.name)}>
-                                  {actionLoading === u.email ? '...' : '✅ Approve'}
-                                </button>
-                                <button
-                                  className="admin-btn admin-btn--reject"
-                                  disabled={actionLoading === u.email}
-                                  onClick={() => handleReject(u.email, u.name)}>
-                                  {actionLoading === u.email ? '...' : '❌ Reject'}
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
+                pendingUsers.length === 0 ? (
+                  <div className="admin-empty">
+                    <div style={{ fontSize: '2.5rem', marginBottom: '8px' }}>✅</div>
+                    No pending registrations
+                  </div>
+                ) : (
+                  <table className="admin-table">
+                    <thead><tr>
+                      <th>Face Photo</th>
+                      <th>Name</th>
+                      <th>Email</th>
+                      <th>Registered</th>
+                      <th>Email Verified</th>
+                      <th>Actions</th>
+                    </tr></thead>
+                    <tbody>
+                      {pendingUsers.map(u => (
+                        <tr key={u.id}>
+                          <td>
+                            {u.facePhoto ? (
+                              <img
+                                src={u.facePhoto}
+                                alt={u.name}
+                                className="admin-face-photo"
+                                onClick={() => setViewFace({ photo: u.facePhoto, name: u.name })}
+                                title="Click to enlarge"
+                              />
+                            ) : (
+                              <div className="admin-no-face">No photo</div>
+                            )}
+                          </td>
+                          <td><strong>{u.name}</strong></td>
+                          <td style={{ fontSize: '0.82rem' }}>{u.email}</td>
+                          <td>{formatDate(u.createdAt)}</td>
+                          <td>
+                            <span className={`status-badge ${u.confirmed ? 'status--approved' : 'status--pending'}`}>
+                              {u.confirmed ? '✅ Verified' : '⏳ Pending'}
+                            </span>
+                          </td>
+                          <td>
+                            <div className="admin-actions">
+                              <button className="admin-btn admin-btn--approve"
+                                disabled={actionLoading === u.email || !u.confirmed}
+                                title={!u.confirmed ? 'User must verify email first' : ''}
+                                onClick={() => handleApprove(u.email, u.name)}>
+                                {actionLoading === u.email ? '...' : '✅ Approve'}
+                              </button>
+                              <button className="admin-btn admin-btn--reject"
+                                disabled={actionLoading === u.email}
+                                onClick={() => handleReject(u.email, u.name)}>
+                                {actionLoading === u.email ? '...' : '❌ Reject'}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )
               )}
 
               {/* Approved Users */}
               {activeTab === 'approved' && (
-                <table className="admin-table">
-                  <thead><tr>
-                    <th>Face</th><th>Name</th><th>Email</th><th>Approved On</th><th>Status</th>
-                  </tr></thead>
-                  <tbody>
-                    {approvedUsers.map(u => (
-                      <tr key={u.id}>
-                        <td>
-                          {u.faceId
-                            ? <span title="Face registered">✅</span>
-                            : <span title="No face">❌</span>}
-                        </td>
-                        <td><strong>{u.name}</strong></td>
-                        <td style={{ fontSize: '0.82rem' }}>{u.email}</td>
-                        <td>{formatDate(u.createdAt)}</td>
-                        <td><span className="status-badge status--approved">Approved</span></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                approvedUsers.length === 0 ? (
+                  <div className="admin-empty">No approved users yet</div>
+                ) : (
+                  <table className="admin-table">
+                    <thead><tr>
+                      <th>Face</th><th>Name</th><th>Email</th><th>Registered</th><th>Status</th>
+                    </tr></thead>
+                    <tbody>
+                      {approvedUsers.map(u => (
+                        <tr key={u.id}>
+                          <td>
+                            {u.facePhoto ? (
+                              <img src={u.facePhoto} alt={u.name} className="admin-face-thumb"
+                                onClick={() => setViewFace({ photo: u.facePhoto, name: u.name })} />
+                            ) : u.faceId ? '✅' : '—'}
+                          </td>
+                          <td><strong>{u.name}</strong></td>
+                          <td style={{ fontSize: '0.82rem' }}>{u.email}</td>
+                          <td>{formatDate(u.createdAt)}</td>
+                          <td><span className="status-badge status--approved">Approved</span></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )
               )}
 
               {/* Rejected Users */}
               {activeTab === 'rejected' && (
-                <table className="admin-table">
-                  <thead><tr>
-                    <th>Name</th><th>Email</th><th>Registered</th><th>Status</th>
-                  </tr></thead>
-                  <tbody>
-                    {rejectedUsers.map(u => (
-                      <tr key={u.id}>
-                        <td><strong>{u.name}</strong></td>
-                        <td style={{ fontSize: '0.82rem' }}>{u.email}</td>
-                        <td>{formatDate(u.createdAt)}</td>
-                        <td><span className="status-badge status--rejected">Rejected</span></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                rejectedUsers.length === 0 ? (
+                  <div className="admin-empty">No rejected users</div>
+                ) : (
+                  <table className="admin-table">
+                    <thead><tr>
+                      <th>Name</th><th>Email</th><th>Registered</th><th>Status</th>
+                    </tr></thead>
+                    <tbody>
+                      {rejectedUsers.map(u => (
+                        <tr key={u.id}>
+                          <td><strong>{u.name}</strong></td>
+                          <td style={{ fontSize: '0.82rem' }}>{u.email}</td>
+                          <td>{formatDate(u.createdAt)}</td>
+                          <td><span className="status-badge status--rejected">Rejected</span></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )
               )}
 
               {/* Attendance Records */}
               {activeTab === 'records' && (
-                <table className="admin-table">
-                  <thead><tr>
-                    <th>Member</th><th>Action</th><th>Time</th><th>Date</th><th>Entry</th><th>Delete</th>
-                  </tr></thead>
-                  <tbody>
-                    {records.map((r, i) => (
-                      <tr key={r.id || i}>
-                        <td><strong>{r.name}</strong></td>
-                        <td>
-                          <span className={`action-tag action-tag--${r.action === 'punch-in' ? 'green' : r.action === 'break' ? 'amber' : 'red'}`}>
-                            {r.action}
-                          </span>
-                        </td>
-                        <td style={{ fontFamily: 'monospace', color: '#2563eb' }}>{r.time}</td>
-                        <td>{r.date}</td>
-                        <td>{r.entryType}</td>
-                        <td>
-                          <button
-                            className="admin-btn admin-btn--reject"
-                            style={{ padding: '4px 10px', fontSize: '12px' }}
-                            onClick={() => handleDeleteRecord(r.id || r._id)}>
-                            🗑
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                records.length === 0 ? (
+                  <div className="admin-empty">No attendance records yet</div>
+                ) : (
+                  <table className="admin-table">
+                    <thead><tr>
+                      <th>Member</th><th>Action</th><th>Time</th><th>Date</th><th>Entry</th><th>Delete</th>
+                    </tr></thead>
+                    <tbody>
+                      {records.map((r, i) => (
+                        <tr key={r.id || i}>
+                          <td><strong>{r.name}</strong></td>
+                          <td>
+                            <span className={`action-tag action-tag--${r.action === 'punch-in' ? 'green' : r.action === 'break' ? 'amber' : 'red'}`}>
+                              {r.action}
+                            </span>
+                          </td>
+                          <td style={{ fontFamily: 'monospace', color: '#2563eb' }}>{r.time}</td>
+                          <td>{r.date}</td>
+                          <td>{r.entryType}</td>
+                          <td>
+                            <button className="admin-btn admin-btn--reject"
+                              style={{ padding: '4px 10px', fontSize: '12px' }}
+                              onClick={() => handleDeleteRecord(r.id || r._id)}>
+                              🗑
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )
               )}
             </>
           )}
         </div>
       </main>
 
-      {toast && (
-        <div className={`admin-toast admin-toast--${toast.type}`}>{toast.msg}</div>
+      {/* Face photo lightbox */}
+      {viewFace && (
+        <div className="face-lightbox" onClick={() => setViewFace(null)}>
+          <div className="face-lightbox-inner" onClick={e => e.stopPropagation()}>
+            <button className="face-lightbox-close" onClick={() => setViewFace(null)}>✕</button>
+            <img src={viewFace.photo} alt={viewFace.name} className="face-lightbox-img" />
+            <p className="face-lightbox-name">{viewFace.name}</p>
+          </div>
+        </div>
       )}
+
+      {toast && <div className={`admin-toast admin-toast--${toast.type}`}>{toast.msg}</div>}
     </div>
   );
 }

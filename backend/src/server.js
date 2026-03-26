@@ -19,7 +19,7 @@ const adminRoutes = require("./routes/adminRoutes");
 const { verifyToken } = require("./middleware/authMiddleware");
 
 const app = express();
-const PORT = process.env.PORT || 10000;
+const PORT = process.env.PORT || 5000;
 
 // ─── Middleware ────────────────────────────────────────────────────────────────
 app.use(cors());
@@ -658,6 +658,58 @@ app.get("/api/face-registrations", async (req, res) => {
   }
 });
 
+
+// ─── GET /api/attendance/status — get today's attendance status for user ───────
+app.get("/api/attendance/status/:name", async (req, res) => {
+  try {
+    const name  = decodeURIComponent(req.params.name);
+    const today = new Date().toISOString().slice(0, 10);
+
+    const query = `
+      SELECT doc.action, doc.time
+      FROM \`${CB_BUCKET}\`.\`${CB_SCOPE}\`.\`${CB_COLLECTION}\` AS doc
+      WHERE doc.type = 'punch_record'
+        AND LOWER(doc.name) = LOWER($1)
+        AND doc.date = $2
+      ORDER BY doc.createdAt DESC
+    `;
+    const result = await cluster.query(query, { parameters: [name, today] });
+    const records = result.rows;
+
+    if (records.length === 0) {
+      return res.json({ status: "none", allowedActions: ["punch-in"], message: "Ready to punch in" });
+    }
+
+    const lastAction = records[0].action;
+
+    let allowedActions = [];
+    let message        = "";
+
+    switch (lastAction) {
+      case "punch-in":
+        allowedActions = ["break", "punch-out"];
+        message        = `Punched in at ${records[records.length - 1].time}`;
+        break;
+      case "break":
+        allowedActions = ["punch-out"];
+        message        = "On break — only punch out available";
+        break;
+      case "punch-out":
+        allowedActions = [];
+        message        = "Work day complete. See you tomorrow!";
+        break;
+      default:
+        allowedActions = ["punch-in"];
+        message        = "Ready to punch in";
+    }
+
+    res.json({ status: lastAction, allowedActions, message, lastTime: records[0].time });
+  } catch (err) {
+    console.error("❌ Attendance status error:", err.message);
+    res.status(500).json({ error: "Failed to get attendance status" });
+  }
+});
+
 // ─── POST /api/upload-photo — proxy to Lambda via API Gateway ────────────────
 app.post("/api/upload-photo", async (req, res) => {
   const PHOTO_API = process.env.PHOTO_API_URL;
@@ -714,7 +766,7 @@ initCouchbase().then(async () => {
   dbContext.cluster    = cluster;
   dbContext.collection = collection;
   await initRekognitionCollection();
-  app.listen(PORT, "0.0.0.0", () => {
+  app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`🌍 Environment: ${process.env.NODE_ENV || "development"}`);
   });

@@ -272,3 +272,99 @@
   .admin-stats { grid-template-columns: repeat(2, 1fr); }
   .admin-main  { padding: 16px; }
 }
+
+/* ── Face photos ─────────────────────────────────────────────────────────────── */
+.admin-face-photo {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 50%;
+  border: 2px solid var(--accent-blue);
+  cursor: pointer;
+  transition: var(--transition);
+  box-shadow: var(--shadow-xs);
+}
+
+.admin-face-photo:hover { transform: scale(1.1); box-shadow: var(--shadow-glow-blue); }
+
+.admin-face-thumb {
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-color);
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.admin-face-thumb:hover { border-color: var(--accent-blue); transform: scale(1.1); }
+
+.admin-no-face {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ── Face lightbox ────────────────────────────────────────────────────────────── */
+.face-lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.8);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  backdrop-filter: blur(4px);
+}
+
+.face-lightbox-inner {
+  position: relative;
+  max-width: 400px;
+  width: 100%;
+  text-align: center;
+}
+
+.face-lightbox-close {
+  position: absolute;
+  top: -44px;
+  right: 0;
+  background: white;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-weight: 700;
+}
+
+.face-lightbox-img {
+  width: 100%;
+  border-radius: 16px;
+  border: 3px solid white;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+}
+
+.face-lightbox-name {
+  color: white;
+  font-weight: 700;
+  font-size: 1rem;
+  margin-top: 12px;
+}
+
+.status--pending {
+  background: var(--accent-amber-light);
+  color: var(--accent-amber);
+  border: 1px solid rgba(217,119,6,.2);
+}
+
+.admin-spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--accent-blue);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin: 0 auto 10px;
+}
