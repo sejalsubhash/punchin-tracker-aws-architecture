@@ -12,13 +12,13 @@ export default function AdminDashboard() {
   const { user, logout, authFetch } = useAuth();
   const navigate = useNavigate();
 
-  const [activeTab, setActiveTab]   = useState('pending');
-  const [users, setUsers]           = useState([]);
-  const [records, setRecords]       = useState([]);
-  const [stats, setStats]           = useState({});
-  const [loading, setLoading]       = useState(true);
+  const [activeTab, setActiveTab]         = useState('pending');
+  const [users, setUsers]                 = useState([]);
+  const [records, setRecords]             = useState([]);
+  const [stats, setStats]                 = useState({});
+  const [loading, setLoading]             = useState(true);
   const [actionLoading, setActionLoading] = useState(null);
-  const [toast, setToast]           = useState(null);
+  const [toast, setToast]                 = useState(null);
 
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type });
@@ -36,8 +36,7 @@ export default function AdminDashboard() {
       const usersData   = await usersRes.json();
       const recordsData = await recordsRes.json();
       const statsData   = await statsRes.json();
-
-      setUsers(usersData.users   || []);
+      setUsers(usersData.users     || []);
       setRecords(recordsData.records || []);
       setStats(statsData);
     } catch (err) {
@@ -49,10 +48,10 @@ export default function AdminDashboard() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  const handleApprove = async (userId, userName) => {
-    setActionLoading(userId);
+  const handleApprove = async (userEmail, userName) => {
+    setActionLoading(userEmail);
     try {
-      const res  = await authFetch(`/api/admin/approve/${userId}`, { method: 'POST' });
+      const res  = await authFetch(`/api/admin/approve/${encodeURIComponent(userEmail)}`, { method: 'POST' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       showToast(`✅ ${userName} approved successfully`);
@@ -64,11 +63,11 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleReject = async (userId, userName) => {
+  const handleReject = async (userEmail, userName) => {
     if (!window.confirm(`Reject ${userName}'s registration?`)) return;
-    setActionLoading(userId);
+    setActionLoading(userEmail);
     try {
-      const res  = await authFetch(`/api/admin/reject/${userId}`, { method: 'POST' });
+      const res  = await authFetch(`/api/admin/reject/${encodeURIComponent(userEmail)}`, { method: 'POST' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       showToast(`${userName} rejected`, 'warning');
@@ -121,7 +120,7 @@ export default function AdminDashboard() {
         {/* Stats */}
         <div className="admin-stats">
           <div className="admin-stat admin-stat--amber">
-            <div className="admin-stat-num">{stats.pendingUsers || 0}</div>
+            <div className="admin-stat-num">{stats.pendingUsers  || 0}</div>
             <div className="admin-stat-lbl">Pending Approval</div>
           </div>
           <div className="admin-stat admin-stat--green">
@@ -133,7 +132,7 @@ export default function AdminDashboard() {
             <div className="admin-stat-lbl">Rejected</div>
           </div>
           <div className="admin-stat admin-stat--blue">
-            <div className="admin-stat-num">{stats.todayPunches || 0}</div>
+            <div className="admin-stat-num">{stats.todayPunches  || 0}</div>
             <div className="admin-stat-lbl">Today's Punches</div>
           </div>
         </div>
@@ -156,36 +155,68 @@ export default function AdminDashboard() {
 
         <div className="admin-card">
           {loading ? (
-            <div className="admin-loading">Loading...</div>
+            <div className="admin-loading">
+              <div className="admin-spinner" />
+              Loading...
+            </div>
           ) : (
             <>
               {/* Pending Users */}
               {activeTab === 'pending' && (
                 <div>
                   {pendingUsers.length === 0 ? (
-                    <div className="admin-empty">No pending registrations</div>
+                    <div className="admin-empty">
+                      <div style={{ fontSize: '2.5rem', marginBottom: '8px' }}>✅</div>
+                      No pending registrations
+                    </div>
                   ) : (
                     <table className="admin-table">
                       <thead><tr>
-                        <th>Name</th><th>Email</th><th>Registered</th><th>Actions</th>
+                        <th>Face</th>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Registered</th>
+                        <th>Email Status</th>
+                        <th>Actions</th>
                       </tr></thead>
                       <tbody>
                         {pendingUsers.map(u => (
                           <tr key={u.id}>
+                            <td>
+                              {u.faceId ? (
+                                <div className="face-registered-badge" title="Face registered ✅">
+                                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2">
+                                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                                    <circle cx="12" cy="7" r="4"/>
+                                  </svg>
+                                  <span className="face-ok">✓</span>
+                                </div>
+                              ) : (
+                                <span className="face-missing" title="Face not registered">👤❌</span>
+                              )}
+                            </td>
                             <td><strong>{u.name}</strong></td>
-                            <td>{u.email}</td>
+                            <td style={{ fontSize: '0.82rem' }}>{u.email}</td>
                             <td>{formatDate(u.createdAt)}</td>
                             <td>
+                              <span className={`status-badge ${u.confirmed ? 'status--approved' : 'status--pending'}`}>
+                                {u.confirmed ? '✅ Verified' : '⏳ Pending'}
+                              </span>
+                            </td>
+                            <td>
                               <div className="admin-actions">
-                                <button className="admin-btn admin-btn--approve"
-                                  disabled={actionLoading === u.id}
-                                  onClick={() => handleApprove(u.id, u.name)}>
-                                  {actionLoading === u.id ? '...' : '✅ Approve'}
+                                <button
+                                  className="admin-btn admin-btn--approve"
+                                  disabled={actionLoading === u.email || !u.confirmed}
+                                  title={!u.confirmed ? 'User must verify email first' : `Approve ${u.name}`}
+                                  onClick={() => handleApprove(u.email, u.name)}>
+                                  {actionLoading === u.email ? '...' : '✅ Approve'}
                                 </button>
-                                <button className="admin-btn admin-btn--reject"
-                                  disabled={actionLoading === u.id}
-                                  onClick={() => handleReject(u.id, u.name)}>
-                                  {actionLoading === u.id ? '...' : '❌ Reject'}
+                                <button
+                                  className="admin-btn admin-btn--reject"
+                                  disabled={actionLoading === u.email}
+                                  onClick={() => handleReject(u.email, u.name)}>
+                                  {actionLoading === u.email ? '...' : '❌ Reject'}
                                 </button>
                               </div>
                             </td>
@@ -200,13 +231,20 @@ export default function AdminDashboard() {
               {/* Approved Users */}
               {activeTab === 'approved' && (
                 <table className="admin-table">
-                  <thead><tr><th>Name</th><th>Email</th><th>Approved On</th><th>Status</th></tr></thead>
+                  <thead><tr>
+                    <th>Face</th><th>Name</th><th>Email</th><th>Approved On</th><th>Status</th>
+                  </tr></thead>
                   <tbody>
                     {approvedUsers.map(u => (
                       <tr key={u.id}>
+                        <td>
+                          {u.faceId
+                            ? <span title="Face registered">✅</span>
+                            : <span title="No face">❌</span>}
+                        </td>
                         <td><strong>{u.name}</strong></td>
-                        <td>{u.email}</td>
-                        <td>{formatDate(u.approvedAt || u.createdAt)}</td>
+                        <td style={{ fontSize: '0.82rem' }}>{u.email}</td>
+                        <td>{formatDate(u.createdAt)}</td>
                         <td><span className="status-badge status--approved">Approved</span></td>
                       </tr>
                     ))}
@@ -217,12 +255,14 @@ export default function AdminDashboard() {
               {/* Rejected Users */}
               {activeTab === 'rejected' && (
                 <table className="admin-table">
-                  <thead><tr><th>Name</th><th>Email</th><th>Registered</th><th>Status</th></tr></thead>
+                  <thead><tr>
+                    <th>Name</th><th>Email</th><th>Registered</th><th>Status</th>
+                  </tr></thead>
                   <tbody>
                     {rejectedUsers.map(u => (
                       <tr key={u.id}>
                         <td><strong>{u.name}</strong></td>
-                        <td>{u.email}</td>
+                        <td style={{ fontSize: '0.82rem' }}>{u.email}</td>
                         <td>{formatDate(u.createdAt)}</td>
                         <td><span className="status-badge status--rejected">Rejected</span></td>
                       </tr>
@@ -250,7 +290,9 @@ export default function AdminDashboard() {
                         <td>{r.date}</td>
                         <td>{r.entryType}</td>
                         <td>
-                          <button className="admin-btn admin-btn--reject" style={{ padding: '4px 10px', fontSize: '12px' }}
+                          <button
+                            className="admin-btn admin-btn--reject"
+                            style={{ padding: '4px 10px', fontSize: '12px' }}
                             onClick={() => handleDeleteRecord(r.id || r._id)}>
                             🗑
                           </button>

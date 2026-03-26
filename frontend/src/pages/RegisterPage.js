@@ -10,14 +10,15 @@ export default function RegisterPage() {
   const [name, setName]               = useState('');
   const [email, setEmail]             = useState('');
   const [password, setPassword]       = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [confirm, setConfirm]         = useState('');
+  const [showConfirm, setShowConfirm] = useState(false);
   const [otp, setOtp]                 = useState('');
   const [loading, setLoading]         = useState(false);
   const [error, setError]             = useState('');
-  const [registeredFaceId, setRegisteredFaceId] = useState(null);
+  const [capturedPhoto, setCapturedPhoto] = useState(null);
   const [showCamera, setShowCamera]   = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
-  const [capturedPhoto, setCapturedPhoto] = useState(null);
 
   const videoRef  = useRef(null);
   const canvasRef = useRef(null);
@@ -25,7 +26,6 @@ export default function RegisterPage() {
 
   const clearError = () => setError('');
 
-  // Camera functions
   const startCamera = useCallback(async () => {
     clearError(); setCapturedPhoto(null); setCameraReady(false);
     try {
@@ -59,7 +59,6 @@ export default function RegisterPage() {
     setCapturedPhoto(canvas.toDataURL('image/jpeg', 0.9));
   }, []);
 
-  // Step 1 — Register face + submit to Cognito
   const registerAndSubmit = async () => {
     if (!name)     return setError('Please enter your full name');
     if (!email)    return setError('Please enter your email');
@@ -69,30 +68,25 @@ export default function RegisterPage() {
     if (!capturedPhoto) return setError('Please capture your face photo first');
     setLoading(true); clearError();
     try {
-      // Register face with Rekognition
       const faceRes  = await fetch('/api/register-face', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, photo: capturedPhoto }),
       });
       const faceData = await faceRes.json();
       if (!faceRes.ok) throw new Error(faceData.error || 'Face registration failed');
-      setRegisteredFaceId(faceData.faceId);
       stopCamera();
 
-      // Register with Cognito — Cognito sends OTP email automatically
       const regRes  = await fetch('/api/auth/register', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, email, password, faceId: faceData.faceId }),
       });
       const regData = await regRes.json();
       if (!regRes.ok) throw new Error(regData.error);
-
-      setStep(2); // Go to OTP verification step
+      setStep(2);
     } catch (err) { setError(err.message); }
     finally { setLoading(false); }
   };
 
-  // Step 2 — Verify OTP from Cognito email
   const verifyOTP = async () => {
     if (!otp) return setError('Please enter the verification code');
     setLoading(true); clearError();
@@ -118,6 +112,24 @@ export default function RegisterPage() {
     } catch { setError('Failed to resend code'); }
   };
 
+  // ── Eye icon ──────────────────────────────────────────────────────────────
+  const EyeIcon = ({ show, toggle }) => (
+    <button type="button" className="eye-btn" onClick={toggle} tabIndex={-1}>
+      {show ? (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+          <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+          <line x1="1" y1="1" x2="23" y2="23"/>
+        </svg>
+      ) : (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+      )}
+    </button>
+  );
+
   return (
     <div className="auth-page">
       <div className="auth-card">
@@ -137,9 +149,11 @@ export default function RegisterPage() {
           ))}
         </div>
 
-        {error && <div className={`auth-error ${error.includes('sent') ? 'auth-info' : ''}`}>
-          {error.includes('sent') ? 'ℹ️' : '⚠️'} {error}
-        </div>}
+        {error && (
+          <div className={error.includes('sent') ? 'auth-success-msg' : 'auth-error'}>
+            {error.includes('sent') ? '✅' : '⚠️'} {error}
+          </div>
+        )}
 
         {/* Step 0 — Details + Face */}
         {step === 0 && (
@@ -155,11 +169,19 @@ export default function RegisterPage() {
             </div>
             <div className="auth-field">
               <label>Password (min 8 characters)</label>
-              <input type="password" placeholder="Min 8 characters" value={password} onChange={e => setPassword(e.target.value)} />
+              <div className="password-wrap">
+                <input type={showPassword ? 'text' : 'password'} placeholder="Min 8 characters"
+                  value={password} onChange={e => setPassword(e.target.value)} />
+                <EyeIcon show={showPassword} toggle={() => setShowPassword(p => !p)} />
+              </div>
             </div>
             <div className="auth-field">
               <label>Confirm password</label>
-              <input type="password" placeholder="Re-enter password" value={confirm} onChange={e => setConfirm(e.target.value)} />
+              <div className="password-wrap">
+                <input type={showConfirm ? 'text' : 'password'} placeholder="Re-enter password"
+                  value={confirm} onChange={e => setConfirm(e.target.value)} />
+                <EyeIcon show={showConfirm} toggle={() => setShowConfirm(p => !p)} />
+              </div>
             </div>
 
             {!showCamera && !capturedPhoto && (
@@ -174,13 +196,26 @@ export default function RegisterPage() {
                   <video ref={videoRef} autoPlay playsInline muted
                     className={`camera-video ${cameraReady ? 'ready' : 'loading'}`}
                     style={{ transform: 'scaleX(-1)' }} />
-                  {!cameraReady && <div className="camera-loading-overlay"><div className="camera-spinner" /><span>Starting camera...</span></div>}
-                  {cameraReady && <div className="face-guide"><div className="face-oval" /><span className="face-guide-text">Align face in oval</span></div>}
+                  {!cameraReady && (
+                    <div className="camera-loading-overlay">
+                      <div className="camera-spinner" />
+                      <span>Starting camera...</span>
+                    </div>
+                  )}
+                  {cameraReady && (
+                    <div className="face-guide">
+                      <div className="face-oval" />
+                      <span className="face-guide-text">Align face in oval</span>
+                    </div>
+                  )}
                 </div>
                 <div className="auth-camera-btns">
-                  <button className="capture-btn" onClick={capturePhoto} disabled={!cameraReady}><span className="capture-btn-inner" /></button>
+                  <button className="capture-btn" onClick={capturePhoto} disabled={!cameraReady}>
+                    <span className="capture-btn-inner" />
+                  </button>
                   <button className="cam-btn cam-btn--cancel" onClick={stopCamera}>Cancel</button>
                 </div>
+                <p className="camera-hint">Click button to capture photo</p>
               </div>
             )}
 
@@ -188,7 +223,10 @@ export default function RegisterPage() {
               <div className="face-preview">
                 <img src={capturedPhoto} alt={name} className="face-preview-img" />
                 <div className="face-preview-label">✅ Face captured</div>
-                <button className="cam-btn cam-btn--retake" onClick={() => { setCapturedPhoto(null); startCamera(); }}>Retake</button>
+                <button className="cam-btn cam-btn--retake"
+                  onClick={() => { setCapturedPhoto(null); startCamera(); }}>
+                  Retake Photo
+                </button>
               </div>
             )}
 
@@ -200,11 +238,11 @@ export default function RegisterPage() {
           </div>
         )}
 
-        {/* Step 2 — Verify OTP from Cognito email */}
+        {/* Step 2 — Verify OTP */}
         {step === 2 && (
           <div className="auth-form animate-in">
             <p className="auth-desc">
-              AWS has sent a verification code to <strong>{email}</strong>. Enter it below.
+              AWS Cognito has sent a 6-digit verification code to <strong>{email}</strong>. Enter it below.
             </p>
             <div className="auth-field">
               <label>Verification code</label>

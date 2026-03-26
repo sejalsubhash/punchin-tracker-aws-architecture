@@ -191,6 +191,66 @@ module.exports = function(db) {
     }
   });
 
+
+  // ── POST /api/auth/forgot-password ─────────────────────────────────────────
+  // Cognito sends reset code to email automatically
+  router.post("/forgot-password", async (req, res) => {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: "Email is required" });
+    try {
+      const { ForgotPasswordCommand } = require("@aws-sdk/client-cognito-identity-provider");
+      await cognitoClient.send(new ForgotPasswordCommand({
+        ClientId: CLIENT_ID,
+        Username: email.toLowerCase(),
+      }));
+      console.log(`✅ Password reset code sent to: ${email}`);
+      res.json({ success: true, message: "Reset code sent to your email" });
+    } catch (err) {
+      console.error("❌ Forgot password error:", err.message);
+      if (err.name === "UserNotFoundException") {
+        return res.status(404).json({ error: "No account found with this email." });
+      }
+      if (err.name === "NotAuthorizedException") {
+        return res.status(400).json({ error: "Please verify your email first." });
+      }
+      res.status(500).json({ error: "Failed to send reset code", details: err.message });
+    }
+  });
+
+  // ── POST /api/auth/reset-password ──────────────────────────────────────────
+  router.post("/reset-password", async (req, res) => {
+    const { email, code, newPassword } = req.body;
+    if (!email || !code || !newPassword) {
+      return res.status(400).json({ error: "Email, code and new password are required" });
+    }
+    if (newPassword.length < 8) {
+      return res.status(400).json({ error: "Password must be at least 8 characters" });
+    }
+    try {
+      const { ConfirmForgotPasswordCommand } = require("@aws-sdk/client-cognito-identity-provider");
+      await cognitoClient.send(new ConfirmForgotPasswordCommand({
+        ClientId:         CLIENT_ID,
+        Username:         email.toLowerCase(),
+        ConfirmationCode: code.toString(),
+        Password:         newPassword,
+      }));
+      console.log(`✅ Password reset successful for: ${email}`);
+      res.json({ success: true, message: "Password reset successfully" });
+    } catch (err) {
+      console.error("❌ Reset password error:", err.message);
+      if (err.name === "CodeMismatchException") {
+        return res.status(400).json({ error: "Incorrect reset code. Please try again." });
+      }
+      if (err.name === "ExpiredCodeException") {
+        return res.status(400).json({ error: "Reset code expired. Please request a new one." });
+      }
+      if (err.name === "InvalidPasswordException") {
+        return res.status(400).json({ error: "Password must have uppercase, lowercase, number and special character." });
+      }
+      res.status(500).json({ error: "Password reset failed", details: err.message });
+    }
+  });
+
   // ── GET /api/auth/me ────────────────────────────────────────────────────────
   router.get("/me", verifyToken, (req, res) => {
     res.json({ user: req.user });
