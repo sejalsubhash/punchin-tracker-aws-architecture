@@ -23,7 +23,15 @@ const cognitoClient = new CognitoIdentityProviderClient({
 
 const CLIENT_ID   = process.env.COGNITO_CLIENT_ID;
 const POOL_ID     = process.env.COGNITO_USER_POOL_ID;
-const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "").toLowerCase();
+// ── Admin email — hardcoded + env variable (both checked) ─────────────────────
+const ADMIN_EMAILS = [
+  "sejal.work0411@gmail.com",                                    // hardcoded admin
+  (process.env.ADMIN_EMAIL || "").toLowerCase().trim(),          // from Render env
+].filter(Boolean);
+
+function isAdminEmail(email) {
+  return ADMIN_EMAILS.includes(email.toLowerCase().trim());
+}
 const JWT_SECRET  = process.env.JWT_SECRET || "punch-tracker-secret";
 const JWT_EXPIRES = process.env.JWT_EXPIRES_IN || "24h";
 
@@ -157,17 +165,24 @@ module.exports = function(db) {
         Permanent:  true,
       }));
 
-      // Update faceId in Cognito
+      // ── Detect if this is admin registration ──────────────────────────
+      const isAdmin    = isAdminEmail(email);
+      const userStatus = isAdmin ? "approved" : "pending";
+      const userRole   = isAdmin ? "admin"    : "member";
+      console.log(`👤 Registering: ${email} | isAdmin: ${isAdmin} | status: ${userStatus}`);
+
+      // Update faceId + status + role in Cognito
       await cognitoClient.send(new AdminUpdateUserAttributesCommand({
         UserPoolId: POOL_ID,
         Username:   email.toLowerCase(),
         UserAttributes: [
-          { Name: "custom:faceId",  Value: faceId  || "" },
-          { Name: "custom:status",  Value: "pending" },
+          { Name: "custom:faceId",  Value: faceId    || "" },
+          { Name: "custom:status",  Value: userStatus },
+          { Name: "custom:role",    Value: userRole   },
         ],
       }));
 
-      // Save face photo to Couchbase for admin to view
+      // Save face photo to Couchbase (for admin dashboard view)
       const userDocId = `user_pending::${email.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
       try { await db.collection.remove(userDocId); } catch (e) {}
       await db.collection.insert(userDocId, {
@@ -176,35 +191,35 @@ module.exports = function(db) {
         email:      email.toLowerCase(),
         faceId:     faceId || "",
         facePhoto:  facePhoto || "",
-        status:     "pending",
+        status:     userStatus,
+        role:       userRole,
         createdAt:  Date.now(),
       });
 
       // Clean up temp registration
       await db.collection.remove(docId).catch(() => {});
 
-      // Notify admin via SNS
+      // Only notify admin via SNS if this is a normal user registration
       const APP_URL = process.env.APP_URL || "https://secure-punch-in-tracker.onrender.com";
-      if (db.sendSNSNotification) {
+      if (!isAdmin && db.sendSNSNotification) {
         await db.sendSNSNotification(
-        `👤 New User Registration — Action Required\n\n` +
-        `Name:   ${name}\n` +
-        `Email:  ${email}\n` +
-        `Status: Pending Your Approval\n\n` +
-        `ADMIN LOGIN STEPS:\n` +
-        `1. Open this link: ${APP_URL}/login\n` +
-        `2. Login with your admin email and password\n` +
-        `3. You will be automatically redirected to Admin Dashboard\n` +
-        `4. Go to Pending tab to approve or reject\n\n` +
-        `Direct admin link (after login): ${APP_URL}/admin\n\n` +
-        `– Punch Tracker System`
-);
+          `👤 New User Registration — Action Required\n\n` +
+          `Name:   ${name}\n` +
+          `Email:  ${email}\n` +
+          `Status: Pending Your Approval\n\n` +
+          `Please review and approve or reject this user:\n` +
+          `${APP_URL}/admin\n\n` +
+          `– Punch Tracker System`
+        );
       }
 
-      console.log(`✅ Registration complete: ${name} (${email})`);
+      console.log(`✅ Registration complete: ${name} (${email}) — role: ${userRole} status: ${userStatus}`);
       res.status(201).json({
-        success: true,
-        message: "Registration successful! Waiting for admin approval.",
+        success:  true,
+        isAdmin,
+        message:  isAdmin
+          ? "Admin account created successfully! You can now login."
+          : "Registration successful! Waiting for admin approval.",
       });
     } catch (err) {
       console.error("❌ Complete registration error:", err.message);
@@ -248,25 +263,44 @@ module.exports = function(db) {
       const name   = attrs["name"]          || email;
       const faceId = attrs["custom:faceId"] || "";
 
+      // Auto-approve admin if somehow still pending
+      if (isAdminEmail(email.toLowerCase()) && status === "pending") {
+        await cognitoClient.send(new AdminUpdateUserAttributesCommand({
+          UserPoolId: POOL_ID,
+          Username:   email.toLowerCase(),
+          UserAttributes: [
+            { Name: "custom:status", Value: "approved" },
+            { Name: "custom:role",   Value: "admin" },
+          ],
+        }));
+        // Update local vars
+        attrs["custom:status"] = "approved";
+        attrs["custom:role"]   = "admin";
+        console.log(`✅ Admin auto-approved on login: ${email}`);
+      }
+
+      const finalStatus = attrs["custom:status"] || "pending";
+      const finalRole   = attrs["custom:role"]   || "member";
+
       // Block login if not approved
-      if (status === "pending") {
+      if (finalStatus === "pending") {
         return res.status(403).json({ error: "Your account is pending admin approval. You will receive an email once approved." });
       }
-      if (status === "rejected") {
+      if (finalStatus === "rejected") {
         return res.status(403).json({ error: "Your account has been rejected. Please contact the administrator." });
       }
 
       // Issue JWT
       const token = jwt.sign(
-        { email: email.toLowerCase(), name, role, status, faceId },
+        { email: email.toLowerCase(), name, role: finalRole, status: finalStatus, faceId },
         JWT_SECRET,
         { expiresIn: JWT_EXPIRES }
       );
 
-      console.log(`✅ User logged in: ${name} (${email})`);
+      console.log(`✅ User logged in: ${name} (${email}) — role: ${finalRole}`);
       res.json({
         success: true, token,
-        user: { name, email: email.toLowerCase(), role, faceId },
+        user: { name, email: email.toLowerCase(), role: finalRole, faceId },
       });
     } catch (err) {
       console.error("❌ Login error:", err.message);
@@ -314,6 +348,138 @@ module.exports = function(db) {
       if (err.name === "ExpiredCodeException")     return res.status(400).json({ error: "Code expired. Request a new one." });
       if (err.name === "InvalidPasswordException") return res.status(400).json({ error: "Password must have uppercase, lowercase, number and special character." });
       res.status(500).json({ error: "Password reset failed", details: err.message });
+    }
+  });
+
+
+  // ── POST /api/auth/setup-admin ─────────────────────────────────────────────
+  // Creates admin account directly — only works for ADMIN_EMAIL
+  // Use this if admin registration gets stuck
+  router.post("/setup-admin", async (req, res) => {
+    const { email, password, name } = req.body;
+
+    if (!isAdminEmail(email)) {
+      return res.status(403).json({ error: "This email is not configured as admin." });
+    }
+
+    if (!password || password.length < 8) {
+      return res.status(400).json({ error: "Password must be at least 8 characters" });
+    }
+
+    const adminName = name || "Admin";
+
+    try {
+      // Try to create user in Cognito
+      try {
+        const { AdminSetUserPasswordCommand } = require("@aws-sdk/client-cognito-identity-provider");
+
+        // Check if user already exists
+        try {
+          await cognitoClient.send(new AdminGetUserCommand({
+            UserPoolId: POOL_ID,
+            Username:   email.toLowerCase(),
+          }));
+          // User exists — just update attributes and password
+          await cognitoClient.send(new AdminSetUserPasswordCommand({
+            UserPoolId: POOL_ID,
+            Username:   email.toLowerCase(),
+            Password:   password,
+            Permanent:  true,
+          }));
+          await cognitoClient.send(new AdminUpdateUserAttributesCommand({
+            UserPoolId: POOL_ID,
+            Username:   email.toLowerCase(),
+            UserAttributes: [
+              { Name: "custom:status", Value: "approved" },
+              { Name: "custom:role",   Value: "admin"    },
+              { Name: "name",          Value: adminName  },
+              { Name: "email_verified", Value: "true"    },
+            ],
+          }));
+          console.log(`✅ Admin account updated: ${email}`);
+          return res.json({ success: true, message: "Admin account updated. You can now login.", email, password });
+        } catch (notFoundErr) {
+          if (notFoundErr.name !== "UserNotFoundException") throw notFoundErr;
+        }
+
+        // Create new admin user directly via admin API
+        const { AdminCreateUserCommand } = require("@aws-sdk/client-cognito-identity-provider");
+        await cognitoClient.send(new AdminCreateUserCommand({
+          UserPoolId:        POOL_ID,
+          Username:          email.toLowerCase(),
+          TemporaryPassword: password,
+          MessageAction:     "SUPPRESS", // Don't send welcome email
+          UserAttributes: [
+            { Name: "name",           Value: adminName             },
+            { Name: "email",          Value: email.toLowerCase()   },
+            { Name: "email_verified", Value: "true"                },
+            { Name: "custom:role",    Value: "admin"               },
+            { Name: "custom:status",  Value: "approved"            },
+            { Name: "custom:faceId",  Value: ""                    },
+          ],
+        }));
+
+        // Set permanent password
+        await cognitoClient.send(new AdminSetUserPasswordCommand({
+          UserPoolId: POOL_ID,
+          Username:   email.toLowerCase(),
+          Password:   password,
+          Permanent:  true,
+        }));
+
+        console.log(`✅ Admin account created: ${email}`);
+        res.json({
+          success:  true,
+          message:  "Admin account created successfully! You can now login.",
+          email,
+          password,
+        });
+
+      } catch (cognitoErr) {
+        throw cognitoErr;
+      }
+    } catch (err) {
+      console.error("❌ Setup admin error:", err.message);
+      if (err.name === "InvalidPasswordException") {
+        return res.status(400).json({
+          error: "Password must have uppercase, lowercase, number and special character (e.g. Admin@2026)",
+        });
+      }
+      res.status(500).json({ error: "Admin setup failed", details: err.message });
+    }
+  });
+
+
+  // ── POST /api/auth/fix-admin ────────────────────────────────────────────────
+  // One-time route to fix admin status in Cognito if stuck as pending
+  router.post("/fix-admin", async (req, res) => {
+    const { secret } = req.body;
+    // Secret key to protect this route
+    if (secret !== "punch-admin-fix-2026") {
+      return res.status(403).json({ error: "Invalid secret" });
+    }
+    try {
+      const adminEmails = ADMIN_EMAILS.filter(Boolean);
+      const results = [];
+      for (const adminEmail of adminEmails) {
+        try {
+          await cognitoClient.send(new AdminUpdateUserAttributesCommand({
+            UserPoolId: POOL_ID,
+            Username:   adminEmail,
+            UserAttributes: [
+              { Name: "custom:status", Value: "approved" },
+              { Name: "custom:role",   Value: "admin" },
+            ],
+          }));
+          results.push({ email: adminEmail, fixed: true });
+          console.log(`✅ Admin fixed: ${adminEmail}`);
+        } catch (err) {
+          results.push({ email: adminEmail, fixed: false, error: err.message });
+        }
+      }
+      res.json({ success: true, results });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
     }
   });
 
