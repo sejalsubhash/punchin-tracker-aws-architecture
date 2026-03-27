@@ -187,14 +187,18 @@ module.exports = function(db) {
       const APP_URL = process.env.APP_URL || "https://secure-punch-in-tracker.onrender.com";
       if (db.sendSNSNotification) {
         await db.sendSNSNotification(
-          `👤 New User Registration — Action Required\n\n` +
-          `Name:   ${name}\n` +
-          `Email:  ${email}\n` +
-          `Status: Pending Your Approval\n\n` +
-          `Please review and approve or reject this user:\n` +
-          `${APP_URL}/admin\n\n` +
-          `– Punch Tracker System`
-        );
+        `👤 New User Registration — Action Required\n\n` +
+        `Name:   ${name}\n` +
+        `Email:  ${email}\n` +
+        `Status: Pending Your Approval\n\n` +
+        `ADMIN LOGIN STEPS:\n` +
+        `1. Open this link: ${APP_URL}/login\n` +
+        `2. Login with your admin email and password\n` +
+        `3. You will be automatically redirected to Admin Dashboard\n` +
+        `4. Go to Pending tab to approve or reject\n\n` +
+        `Direct admin link (after login): ${APP_URL}/admin\n\n` +
+        `– Punch Tracker System`
+);
       }
 
       console.log(`✅ Registration complete: ${name} (${email})`);
