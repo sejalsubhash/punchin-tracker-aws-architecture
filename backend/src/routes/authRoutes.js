@@ -56,6 +56,13 @@ module.exports = function(db) {
         if (e.name !== "UserNotFoundException") throw e;
       }
 
+      // Check if admin email at Step 1 itself
+      const isAdminReg   = isAdminEmail(email);
+      const initialRole  = isAdminReg ? "admin"    : "member";
+      const initialStatus = isAdminReg ? "approved" : "pending";
+
+      console.log(`📧 Registration started: ${email} | isAdmin: ${isAdminReg}`);
+
       // Register with temp password to trigger Cognito verification email
       const tempPassword = `Temp@${Math.random().toString(36).slice(2, 10)}1A`;
       await cognitoClient.send(new SignUpCommand({
@@ -65,8 +72,8 @@ module.exports = function(db) {
         UserAttributes: [
           { Name: "name",          Value: name },
           { Name: "email",         Value: email.toLowerCase() },
-          { Name: "custom:role",   Value: "member" },
-          { Name: "custom:status", Value: "pending" },
+          { Name: "custom:role",   Value: initialRole },
+          { Name: "custom:status", Value: initialStatus },
           { Name: "custom:faceId", Value: "" },
         ],
       }));
